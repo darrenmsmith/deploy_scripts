@@ -11,6 +11,47 @@ source "${SCRIPT_DIR}/logging_functions.sh"
 log_start "Client Phase 5: Client Application Deployment"
 
 ################################################################################
+# SUDO CREDENTIAL REFRESH - Prompt once, keep alive throughout script
+################################################################################
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Sudo Access Required"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "This script requires sudo access for:"
+echo "  • Creating directories (/opt/field_trainer/)"
+echo "  • Installing files"
+echo "  • Creating systemd services"
+echo "  • Starting services"
+echo ""
+echo "You will be prompted for your password ONCE at the beginning."
+echo ""
+
+# Prompt for sudo password and keep session alive
+sudo -v
+
+if [ $? -ne 0 ]; then
+    log_error "Sudo authentication failed"
+    exit 1
+fi
+
+# Background process to keep sudo session alive
+# Refreshes every 4 minutes (sudo timeout is usually 5-15 minutes)
+(
+    while true; do
+        sleep 240  # 4 minutes
+        sudo -v
+    done
+) &
+SUDO_REFRESH_PID=$!
+
+# Ensure we kill the refresh process on exit
+trap "kill $SUDO_REFRESH_PID 2>/dev/null" EXIT
+
+log_success "Sudo credentials cached (will not prompt again)"
+
+################################################################################
 # Step 1: Get Device Number
 ################################################################################
 
@@ -167,26 +208,30 @@ log_step "Downloading audio files from Device0"
 echo ""
 log_info "Downloading male voice audio files (this may take a minute)..."
 
+mkdir -p /tmp/audio_male 2>/dev/null
 scp -r -o StrictHostKeyChecking=no pi@${DEVICE0_IP}:/opt/field_trainer/audio/male/* /tmp/audio_male/ 2>/dev/null
 
 if [ $? -eq 0 ]; then
-    sudo mv /tmp/audio_male/* /opt/field_trainer/audio/male/
+    sudo mv /tmp/audio_male/* /opt/field_trainer/audio/male/ 2>/dev/null
     MALE_COUNT=$(ls -1 /opt/field_trainer/audio/male/*.mp3 2>/dev/null | wc -l)
     log_success "Male audio files downloaded ($MALE_COUNT files)"
 else
     log_warning "Male audio files not downloaded"
+    MALE_COUNT=0
 fi
 
 log_info "Downloading female voice audio files..."
 
+mkdir -p /tmp/audio_female 2>/dev/null
 scp -r -o StrictHostKeyChecking=no pi@${DEVICE0_IP}:/opt/field_trainer/audio/female/* /tmp/audio_female/ 2>/dev/null
 
 if [ $? -eq 0 ]; then
-    sudo mv /tmp/audio_female/* /opt/field_trainer/audio/female/
+    sudo mv /tmp/audio_female/* /opt/field_trainer/audio/female/ 2>/dev/null
     FEMALE_COUNT=$(ls -1 /opt/field_trainer/audio/female/*.mp3 2>/dev/null | wc -l)
     log_success "Female audio files downloaded ($FEMALE_COUNT files)"
 else
     log_warning "Female audio files not downloaded"
+    FEMALE_COUNT=0
 fi
 
 # Set permissions
