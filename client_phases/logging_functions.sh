@@ -260,10 +260,39 @@ show_log_tail() {
 }
 
 ################################################################################
+# Simplified Start/End Functions (for compatibility)
+################################################################################
+
+log_start() {
+    local phase_desc=$1
+    echo ""
+    echo "========================================"
+    echo "$phase_desc"
+    echo "========================================"
+    echo ""
+    # Set LOG_FILE if not already set (for backward compatibility)
+    if [ -z "$LOG_FILE" ]; then
+        LOG_DIR="/tmp"
+        mkdir -p "$LOG_DIR" 2>/dev/null
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        LOG_FILE="${LOG_DIR}/phase_${timestamp}.log"
+    fi
+}
+
+log_end() {
+    local message=$1
+    echo ""
+    log_success "$message"
+    echo ""
+}
+
+################################################################################
 # Export Functions
 ################################################################################
 
 export -f init_logging
+export -f log_start
+export -f log_end
 export -f log_step
 export -f log_info
 export -f log_success
