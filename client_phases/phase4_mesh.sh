@@ -424,14 +424,17 @@ log_step "Step 12: Creating systemd service for mesh network"
 sudo tee /etc/systemd/system/batman-mesh-client.service > /dev/null << EOF
 [Unit]
 Description=BATMAN-adv Mesh Network (Client Device${DEVICE_NUM})
-After=network-pre.target
-Before=network.target
+After=network.target network-online.target
+Wants=network-online.target
+Before=field-client.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/start-batman-mesh-client.sh
 ExecStop=/usr/local/bin/stop-batman-mesh-client.sh
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
