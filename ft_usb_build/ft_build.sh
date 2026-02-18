@@ -144,7 +144,7 @@ print_header() { echo -e "${CYAN}$1${NC}"; }
 if [ "$DEVICE_TYPE" == "gateway" ]; then
     PHASES_DIR="$SCRIPT_DIR/gateway_phases"
     STATE_FILE="$SCRIPT_DIR/.build_state_gateway"
-    MAX_PHASE=6  # Phases 0-6 (7 total)
+    MAX_PHASE=7  # Phases 0-7 (8 total)
 
     # Gateway phase names
     PHASE_NAMES=(
@@ -155,6 +155,7 @@ if [ "$DEVICE_TYPE" == "gateway" ]; then
         "Phase 5: DNS/DHCP Server (dnsmasq)"
         "Phase 6: NAT/Firewall (iptables)"
         "Phase 7: Field Trainer Application"
+        "Phase 8: Deploy Client Application to Field Cones"
     )
 
     DEVICE_NAME="Gateway (Device0)"
@@ -162,7 +163,7 @@ if [ "$DEVICE_TYPE" == "gateway" ]; then
 else
     PHASES_DIR="$SCRIPT_DIR/client_phases"
     STATE_FILE="$SCRIPT_DIR/.build_state_client${DEVICE_NUM}"
-    MAX_PHASE=4  # Phases 0-4 (5 total)
+    MAX_PHASE=5  # Phases 0-5 (6 total)
 
     # Client phase names
     PHASE_NAMES=(
@@ -171,6 +172,7 @@ else
         "Phase 3: Package Installation (batman-adv, batctl)"
         "Phase 4: Mesh Network Join (Connect to Device0)"
         "Phase 5: Client Application (Download from Device0)"
+        "Phase 6: Update Client Application from Device0"
     )
 
     DEVICE_NAME="Field Device (Device${DEVICE_NUM})"
