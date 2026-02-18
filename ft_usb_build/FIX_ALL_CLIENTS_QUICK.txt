@@ -1,0 +1,83 @@
+================================================================================
+QUICK FIX FOR ALL CLIENT DEVICES - BSSID MISMATCH
+================================================================================
+
+PROBLEM: Clients can't connect to Device0 mesh (wrong BSSID)
+SOLUTION: Run fix script on each client
+
+================================================================================
+COMMANDS TO RUN FROM DEVICE0
+================================================================================
+
+# Fix Device1
+scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.101:/tmp/
+ssh pi@192.168.99.101 "cd /tmp && chmod +x fix_client_bssid.sh && sudo ./fix_client_bssid.sh"
+
+# Fix Device2
+scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.102:/tmp/
+ssh pi@192.168.99.102 "cd /tmp && chmod +x fix_client_bssid.sh && sudo ./fix_client_bssid.sh"
+
+# Fix Device3
+scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.103:/tmp/
+ssh pi@192.168.99.103 "cd /tmp && chmod +x fix_client_bssid.sh && sudo ./fix_client_bssid.sh"
+
+# Fix Device4
+scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.104:/tmp/
+ssh pi@192.168.99.104 "cd /tmp && chmod +x fix_client_bssid.sh && sudo ./fix_client_bssid.sh"
+
+# Fix Device5
+scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.105:/tmp/
+ssh pi@192.168.99.105 "cd /tmp && chmod +x fix_client_bssid.sh && sudo ./fix_client_bssid.sh"
+
+================================================================================
+VERIFY ALL CLIENTS CONNECTED
+================================================================================
+
+After running the fix on all clients, check Device0:
+
+ssh pi@192.168.99.100
+sudo batctl n
+
+You should see all 5 clients listed as neighbors:
+
+[B.A.T.M.A.N. adv 2024.2, MainIF/MAC: wlan0/b8:27:eb:3e:4a:99]
+IF             Neighbor              last-seen
+wlan0          xx:xx:xx:xx:xx:x1     0.XXXs    ← Device1
+wlan0          xx:xx:xx:xx:xx:x2     0.XXXs    ← Device2
+wlan0          xx:xx:xx:xx:xx:x3     0.XXXs    ← Device3
+wlan0          xx:xx:xx:xx:xx:x4     0.XXXs    ← Device4
+wlan0          xx:xx:xx:xx:xx:x5     0.XXXs    ← Device5
+
+================================================================================
+CHECK DEVICE0 WEB INTERFACE
+================================================================================
+
+Open browser: http://192.168.99.100:5000
+
+Go to "Devices" tab - all 5 client devices should appear with:
+- Status: Connected
+- Last Seen: Recent timestamp
+
+================================================================================
+IF A CLIENT STILL DOESN'T CONNECT
+================================================================================
+
+SSH to that specific client:
+
+ssh pi@192.168.99.10X
+
+Check service status:
+sudo systemctl status batman-mesh-client
+
+Check logs:
+sudo journalctl -u batman-mesh-client -n 30
+
+Check neighbors:
+sudo batctl n
+
+Manually restart:
+sudo systemctl restart batman-mesh-client
+sleep 10
+sudo batctl n
+
+================================================================================

@@ -1,0 +1,8 @@
+# Field Trainer Device MAC Addresses
+# Format: DeviceN: MAC_ADDRESS
+
+Device1: b8:27:eb:ac:14:18
+Device2: b8:27:eb:d5:4e:95
+Device3: b8:27:eb:53:61:39
+Device4: b8:27:eb:a9:54:36
+Device5: b8:27:eb:61:4b:0e

@@ -1,0 +1,94 @@
+================================================================================
+                        START HERE - MESH CONNECTION FIX
+================================================================================
+
+ISSUE IDENTIFIED: Clients can't connect to Device0 mesh network
+
+ROOT CAUSE: BSSID mismatch
+  - Device0 using: b8:27:eb:3e:4a:99
+  - Clients trying: 00:11:22:33:44:55 (wrong!)
+
+SOLUTION: Run fix script on EACH client device
+
+================================================================================
+                              QUICK START
+================================================================================
+
+Option 1 - Fix All Clients at Once (RECOMMENDED)
+-------------------------------------------------
+
+See file: FIX_ALL_CLIENTS_QUICK.txt
+
+Copy and paste commands from that file to fix all clients in sequence.
+
+
+Option 2 - Fix One Client at a Time
+------------------------------------
+
+For each client (Device1 at 192.168.99.101, Device2 at .102, etc.):
+
+  # From Device0
+  scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.10X:/tmp/
+
+  # SSH to client
+  ssh pi@192.168.99.10X
+  cd /tmp
+  chmod +x fix_client_bssid.sh
+  sudo ./fix_client_bssid.sh
+
+  # Should see: "✓✓✓ SUCCESS! ✓✓✓ Mesh connection established!"
+
+================================================================================
+                            AFTER RUNNING FIX
+================================================================================
+
+Verify all clients connected:
+
+  ssh pi@192.168.99.100
+  sudo batctl n
+
+Should show all 5 clients as neighbors!
+
+Check Device0 web interface:
+  http://192.168.99.100:5000
+  → Devices tab
+  → All clients should show "Connected"
+
+================================================================================
+                          DETAILED DOCUMENTATION
+================================================================================
+
+For full explanation and technical details:
+
+  MESH_CONNECTION_ISSUE_RESOLVED.md  - Complete analysis and solution
+  DEVICE0_BSSID_MISMATCH.md          - Technical explanation
+  PHASE4_CONFIGURATION_VALUES.txt    - Correct configuration values
+  TROUBLESHOOTING_SCRIPTS_INDEX.md   - All available scripts
+
+================================================================================
+                             SCRIPTS AVAILABLE
+================================================================================
+
+Fix Scripts:
+  fix_client_bssid.sh           - Fix BSSID on client (RUN THIS!)
+  fix_client_mesh_boot.sh       - Fix boot reconnect issues
+
+Diagnostic Scripts:
+  get_device0_mesh_config.sh    - Show Device0 actual config
+  check_client_mesh_config.sh   - Check client config status
+  diagnose_client_mesh.sh       - Full client diagnostics
+  capture_device0_mesh_status.sh - Detailed Device0 capture
+  capture_client_mesh_status.sh - Detailed client capture
+
+================================================================================
+                                 SUMMARY
+================================================================================
+
+1. Run fix_client_bssid.sh on each client (Device1-5)
+2. Verify all clients appear as neighbors on Device0
+3. Check Device0 web interface shows all clients connected
+4. System ready to use!
+
+For questions or issues, see TROUBLESHOOTING_SCRIPTS_INDEX.md
+
+================================================================================

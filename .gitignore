@@ -1,0 +1,24 @@
+# Large backup files
+*.tar.gz
+
+# NTFS system directory
+System Volume Information/
+
+# Temporary sed files
+sedLalScc
+sedQaLT9t
+
+# Runtime install logs (generated during installation, not source)
+install_logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Old backup archive (37MB, contains MP3 audio files)
+backup2025/
+
+# Backup files
+*.backup_*
+*.bak

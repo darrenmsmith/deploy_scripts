@@ -1,0 +1,140 @@
+================================================================================
+PHASE 4 CLIENT MESH CONFIGURATION VALUES
+================================================================================
+
+CRITICAL: When running Phase 4 on client devices, you will be prompted for
+mesh network configuration. Use these EXACT values to match Device0 Prod:
+
+================================================================================
+CONFIGURATION VALUES FOR DEVICE0 PROD
+================================================================================
+
+From Device0 actual configuration (confirmed 2026-01-05):
+
+  MESH_SSID:   ft_mesh2
+  MESH_CHANNEL: 1
+  MESH_BSSID:   b8:27:eb:3e:4a:99
+  MESH_FREQ:    2412
+
+================================================================================
+HOW TO USE THESE VALUES
+================================================================================
+
+When you run Phase 4 on a client device:
+
+  cd /mnt/usb/ft_usb_build/client_phases
+  ./phase4_mesh.sh
+
+You will be prompted:
+
+  "Enter mesh SSID (default: ft_mesh):"
+  → Type: ft_mesh2
+
+  "Enter mesh channel (default: 1):"
+  → Press Enter (1 is correct)
+
+The script will automatically calculate:
+  - Frequency: 2412 MHz (from channel 1)
+
+HOWEVER: The script hardcodes BSSID to 00:11:22:33:44:55 which is WRONG!
+
+================================================================================
+WORKAROUND: Fix BSSID After Phase 4
+================================================================================
+
+After Phase 4 completes, you MUST run the BSSID fix script:
+
+  1. Copy fix script to client:
+     scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.10X:/tmp/
+
+  2. SSH to client and run fix:
+     ssh pi@192.168.99.10X
+     cd /tmp
+     sudo ./fix_client_bssid.sh
+
+  3. Verify connection:
+     sudo batctl n
+     # Should show Device0 as neighbor
+
+================================================================================
+FOR ALREADY-BUILT CLIENTS
+================================================================================
+
+If you already built Device1-5 with Phase 4, they ALL have the wrong BSSID.
+
+Run the fix script on EACH client:
+
+  Device1 (192.168.99.101):
+    scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.101:/tmp/
+    ssh pi@192.168.99.101 "cd /tmp && sudo ./fix_client_bssid.sh"
+
+  Device2 (192.168.99.102):
+    scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.102:/tmp/
+    ssh pi@192.168.99.102 "cd /tmp && sudo ./fix_client_bssid.sh"
+
+  Device3 (192.168.99.103):
+    scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.103:/tmp/
+    ssh pi@192.168.99.103 "cd /tmp && sudo ./fix_client_bssid.sh"
+
+  Device4 (192.168.99.104):
+    scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.104:/tmp/
+    ssh pi@192.168.99.104 "cd /tmp && sudo ./fix_client_bssid.sh"
+
+  Device5 (192.168.99.105):
+    scp /mnt/usb/ft_usb_build/fix_client_bssid.sh pi@192.168.99.105:/tmp/
+    ssh pi@192.168.99.105 "cd /tmp && sudo ./fix_client_bssid.sh"
+
+After running the fix, check Device0:
+  ssh pi@192.168.99.100
+  sudo batctl n
+  # Should show all 5 clients as neighbors
+
+================================================================================
+WHY THIS IS NECESSARY
+================================================================================
+
+The gateway build scripts (used to build Device0 originally) used a placeholder
+BSSID of 00:11:22:33:44:55. This was never updated to Device0's actual wlan0
+MAC address (b8:27:eb:3e:4a:99).
+
+When Device0 starts its mesh, it uses b8:27:eb:3e:4a:99 as the BSSID.
+
+The client build scripts (Phase 4) copied the placeholder BSSID value, so all
+clients try to join a mesh with BSSID 00:11:22:33:44:55 which doesn't exist!
+
+This is why clients never connect - they're looking for the wrong mesh network.
+
+The fix_client_bssid.sh script updates the client configuration to use the
+CORRECT BSSID that Device0 is actually using.
+
+================================================================================
+VERIFICATION AFTER FIX
+================================================================================
+
+On each client after running the fix:
+
+  # Check service is running
+  sudo systemctl status batman-mesh-client
+
+  # Check neighbors (should see Device0)
+  sudo batctl n
+
+  # Check IBSS mode
+  iw dev wlan0 info | grep -E "type|ssid"
+
+  # Test connectivity
+  ping -c 3 192.168.99.100
+
+On Device0:
+
+  # Check neighbors (should see all clients)
+  sudo batctl n
+
+  # Should show:
+  wlan0    <device1-mac>    0.XXXs
+  wlan0    <device2-mac>    0.XXXs
+  wlan0    <device3-mac>    0.XXXs
+  wlan0    <device4-mac>    0.XXXs
+  wlan0    <device5-mac>    0.XXXs
+
+================================================================================

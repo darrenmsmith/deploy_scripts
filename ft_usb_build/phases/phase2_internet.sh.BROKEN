@@ -1,0 +1,890 @@
+#!/bin/bash
+
+################################################################################
+# Phase 2: Internet Connection (wlan1) - FINAL CONSOLIDATED VERSION
+# Works on: RPi 3 A+ (512MB), RPi 5, Debian Trixie
+# Combines: Cleanup + Robust Installation + Logging
+################################################################################
+
+# Source logging functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/logging_functions.sh"
+
+# Initialize logging for Phase 2
+init_logging 2 "internet"
+
+# Log phase start
+log_phase_start 2 "Internet Connection (wlan1)"
+
+ERRORS=0
+MAX_RETRIES=5
+
+echo "Phase 2: Internet Connection (wlan1)"
+echo "====================================="
+log_info "Phase 2 script started"
+echo ""
+echo "This script will:"
+echo "  • Clean up any existing wlan1 configuration"
+echo "  • Configure USB WiFi for internet access"
+echo "  • Optimize for RPi 3 A+ (power management, timing)"
+echo "  • Create auto-start service"
+echo "  • Install connection watchdog"
+echo ""
+read -p "Press Enter to begin..."
+echo ""
+
+################################################################################
+# STEP 0: AGGRESSIVE PRE-CLEANUP
+################################################################################
+
+echo "Step 0: Pre-Cleanup (Fixing 'Match already configured')..."
+echo "-----------------------------------------------------------"
+
+print_info "Stopping all network services..."
+sudo systemctl stop wlan1-internet.service 2>/dev/null
+sudo systemctl stop wpa_supplicant@wlan1.service 2>/dev/null
+sudo systemctl stop wpa_supplicant.service 2>/dev/null
+
+print_info "Killing existing processes..."
+sudo killall -9 wpa_supplicant 2>/dev/null
+sudo killall -9 dhcpcd 2>/dev/null
+sleep 3
+
+# Verify wpa_supplicant is dead
+if pgrep wpa_supplicant >/dev/null; then
+    print_warning "Force killing remaining wpa_supplicant..."
+    for pid in $(pgrep wpa_supplicant); do
+        sudo kill -9 "$pid" 2>/dev/null
+    done
+    sleep 2
+fi
+
+# Verify dhcpcd is dead
+if pgrep dhcpcd >/dev/null; then
+    print_warning "Force killing remaining dhcpcd processes..."
+    for pid in $(pgrep dhcpcd); do
+        sudo kill -9 "$pid" 2>/dev/null
+    done
+    sleep 2
+
+    # Final check
+    if pgrep dhcpcd >/dev/null; then
+        print_error "dhcpcd processes refusing to die!"
+        print_info "Manual intervention: sudo pkill -9 dhcpcd"
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+print_info "Removing runtime files..."
+sudo rm -f /var/run/wpa_supplicant-wlan1.pid 2>/dev/null
+sudo rm -f /run/wpa_supplicant-wlan1.pid 2>/dev/null
+sudo rm -f /var/run/wpa_supplicant/wlan1 2>/dev/null
+sudo rm -f /run/wpa_supplicant/wlan1 2>/dev/null
+sudo rm -rf /var/run/wpa_supplicant 2>/dev/null
+sudo rm -rf /run/wpa_supplicant 2>/dev/null
+
+print_info "Recreating wpa_supplicant runtime directory..."
+sudo mkdir -p /run/wpa_supplicant
+sudo chown root:netdev /run/wpa_supplicant
+sudo chmod 750 /run/wpa_supplicant
+
+print_info "Masking conflicting services..."
+sudo systemctl mask wpa_supplicant@wlan1.service 2>/dev/null
+
+print_info "Removing old configs..."
+if [ -f /etc/wpa_supplicant/wpa_supplicant-wlan1.conf ]; then
+    sudo mv /etc/wpa_supplicant/wpa_supplicant-wlan1.conf \
+            /etc/wpa_supplicant/wpa_supplicant-wlan1.conf.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null
+fi
+
+print_success "Pre-cleanup complete"
+echo ""
+
+################################################################################
+# STEP 1: System Preparation
+################################################################################
+
+echo "Step 1: System Preparation..."
+echo "------------------------------"
+
+print_info "Freeing memory..."
+sudo sync
+sudo sysctl -w vm.drop_caches=3 2>/dev/null
+
+AVAILABLE_MEM=$(free -m | awk 'NR==2{print $7}')
+print_info "Available memory: ${AVAILABLE_MEM}MB"
+
+if [ "$AVAILABLE_MEM" -lt 100 ]; then
+    print_warning "Low memory detected - using conservative settings"
+fi
+
+echo ""
+
+################################################################################
+# STEP 2: Disable Power Management (Critical for Pi 3)
+################################################################################
+
+echo "Step 2: Disable USB/WiFi Power Management..."
+echo "---------------------------------------------"
+
+print_info "Creating USB power configuration..."
+sudo tee /etc/modprobe.d/usb-power-save.conf > /dev/null << 'EOF'
+# Disable USB autosuspend for WiFi stability on RPi 3 A+
+options usbcore autosuspend=-1
+EOF
+
+if [ $? -eq 0 ]; then
+    print_success "USB autosuspend disabled"
+else
+    print_error "Failed to create USB power config"
+    ERRORS=$((ERRORS + 1))
+fi
+
+print_info "Creating WiFi power management script..."
+sudo tee /usr/local/bin/disable-wifi-pm.sh > /dev/null << 'EOF'
+#!/bin/bash
+# Disable power management on all WiFi interfaces
+for iface in /sys/class/net/wlan*; do
+    if [ -e "$iface/device/power/control" ]; then
+        echo "on" > "$iface/device/power/control" 2>/dev/null
+    fi
+done
+for iface in wlan0 wlan1; do
+    if iwconfig "$iface" 2>/dev/null | grep -q "IEEE"; then
+        iwconfig "$iface" power off 2>/dev/null
+    fi
+done
+EOF
+
+sudo chmod +x /usr/local/bin/disable-wifi-pm.sh
+sudo /usr/local/bin/disable-wifi-pm.sh
+
+print_success "WiFi power management disabled"
+echo ""
+
+################################################################################
+# STEP 3: Load WiFi Driver
+################################################################################
+
+echo "Step 4: Loading WiFi Driver..."
+echo "-------------------------------"
+
+print_info "Reloading mt76x0u driver cleanly..."
+sudo modprobe -r mt76x0u 2>/dev/null
+sleep 2
+
+if sudo modprobe mt76x0u; then
+    print_success "Driver loaded"
+    sleep 3
+else
+    print_error "Driver load failed"
+    ERRORS=$((ERRORS + 1))
+fi
+
+if lsmod | grep -q mt76x0u; then
+    print_success "Driver verified: mt76x0u"
+else
+    print_warning "Driver not detected in lsmod"
+fi
+
+echo ""
+
+################################################################################
+# STEP 5: Unblock and Configure Interface
+################################################################################
+
+echo "Step 5: Configuring wlan1 Interface..."
+echo "---------------------------------------"
+
+print_info "Unblocking all wireless interfaces..."
+sudo rfkill unblock all
+sleep 2
+
+# Verify unblocked
+BLOCKED_COUNT=$(sudo rfkill list | grep -c "Soft blocked: yes")
+if [ "$BLOCKED_COUNT" -gt 0 ]; then
+    print_warning "Some interfaces still blocked, retrying..."
+    sudo rfkill unblock all
+    sleep 2
+
+    # Force unblock via sysfs
+    for rfkill_dev in /sys/class/rfkill/rfkill*; do
+        if [ -e "$rfkill_dev/soft" ]; then
+            echo 0 | sudo tee "$rfkill_dev/soft" > /dev/null 2>&1
+        fi
+    done
+    sleep 2
+fi
+
+print_success "All wireless unblocked"
+
+# Check if wlan1 exists
+echo -n "  Checking wlan1... "
+if ip link show wlan1 &>/dev/null; then
+    print_success "found"
+else
+    print_error "wlan1 not found"
+    print_info "Available interfaces:"
+    ip link show | grep -E "^[0-9]+:" | awk '{print "  " $2}'
+    print_info "USB devices:"
+    lsusb | grep -i "wireless\|wifi\|network\|mediatek"
+    ERRORS=$((ERRORS + 1))
+    exit 1
+fi
+
+# Get MAC address
+WLAN1_MAC=$(ip link show wlan1 | grep "link/ether" | awk '{print $2}')
+print_info "wlan1 MAC: $WLAN1_MAC"
+
+print_info "Resetting wlan1 to clean state..."
+sudo ip link set wlan1 down
+sudo ip addr flush dev wlan1 2>/dev/null
+sleep 3
+
+sudo ip link set wlan1 up
+sleep 5  # Longer wait for low-power Pi 3
+
+WLAN1_STATE=$(ip link show wlan1 | grep -o "state [A-Z]*" | awk '{print $2}')
+print_info "Interface state: $WLAN1_STATE"
+
+if [ "$WLAN1_STATE" = "UP" ] || [ "$WLAN1_STATE" = "UNKNOWN" ] || [ "$WLAN1_STATE" = "DORMANT" ]; then
+    print_success "wlan1 is ready"
+else
+    print_warning "wlan1 state is $WLAN1_STATE (continuing anyway)"
+fi
+
+# Disable power management immediately
+sudo iwconfig wlan1 power off 2>/dev/null
+
+echo ""
+
+################################################################################
+# STEP 6: WiFi Credentials Configuration
+################################################################################
+
+echo "Step 6: WiFi Configuration..."
+echo "------------------------------"
+
+# Prompt for credentials
+read -p "Enter WiFi SSID: " WIFI_SSID
+
+if [ -z "$WIFI_SSID" ]; then
+    print_error "SSID cannot be empty"
+    exit 1
+fi
+
+read -s -p "Enter WiFi Password: " WIFI_PASSWORD
+echo ""
+
+if [ -z "$WIFI_PASSWORD" ]; then
+    print_error "Password cannot be empty"
+    exit 1
+fi
+
+# Create wpa_supplicant config with roaming disabled
+WPA_CONF="/etc/wpa_supplicant/wpa_supplicant-wlan1.conf"
+
+print_info "Creating wpa_supplicant configuration..."
+
+sudo tee "$WPA_CONF" > /dev/null << EOF
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=US
+
+# Disable roaming and optimize for stability
+ap_scan=1
+fast_reauth=1
+
+network={
+    ssid="$WIFI_SSID"
+    psk="$WIFI_PASSWORD"
+    key_mgmt=WPA-PSK
+
+    # Prevent roaming between APs
+    bgscan=""
+
+    # High priority
+    priority=100
+
+    # Infrastructure mode
+    mode=0
+}
+EOF
+
+sudo chmod 600 "$WPA_CONF"
+
+if [ -f "$WPA_CONF" ]; then
+    print_success "Configuration created and secured"
+else
+    print_error "Failed to create configuration"
+    exit 1
+fi
+
+echo ""
+
+################################################################################
+# STEP 7: Connect to WiFi with Retry Logic
+################################################################################
+
+echo "Step 7: Connecting to WiFi..."
+echo "------------------------------"
+
+WPA_CONNECTED=false
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    print_info "Connection attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
+
+    # Ensure interface is up
+    sudo ip link set wlan1 up
+    sleep 2
+
+    # Start wpa_supplicant
+    print_info "Starting wpa_supplicant..."
+    sudo wpa_supplicant -B -i wlan1 -c "$WPA_CONF" -P /var/run/wpa_supplicant-wlan1.pid
+
+    if [ $? -eq 0 ]; then
+        print_success "wpa_supplicant started"
+
+        # Wait for connection with progress
+        print_info "Waiting for WiFi connection (30 seconds)..."
+
+        for i in {1..30}; do
+            echo -n "."
+            sleep 1
+
+            # Check connection status every 5 seconds
+            if [ $((i % 5)) -eq 0 ]; then
+                WPA_STATUS=$(sudo wpa_cli -i wlan1 status 2>/dev/null)
+                if echo "$WPA_STATUS" | grep -q "wpa_state=COMPLETED"; then
+                    echo ""
+                    print_success "Connected to $WIFI_SSID"
+                    WPA_CONNECTED=true
+                    break 2
+                fi
+            fi
+        done
+        echo ""
+
+        # Final check
+        WPA_STATUS=$(sudo wpa_cli -i wlan1 status 2>/dev/null)
+        if echo "$WPA_STATUS" | grep -q "wpa_state=COMPLETED"; then
+            print_success "Connected to $WIFI_SSID"
+            WPA_CONNECTED=true
+            break
+        else
+            WPA_STATE=$(echo "$WPA_STATUS" | grep "wpa_state=" | cut -d'=' -f2)
+            print_warning "Connection failed - state: $WPA_STATE"
+        fi
+    else
+        print_error "wpa_supplicant failed to start"
+    fi
+
+    # Cleanup for retry
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+        print_info "Retrying in 5 seconds..."
+        sudo killall -9 wpa_supplicant 2>/dev/null
+        sudo ip link set wlan1 down
+        sleep 5
+        sudo ip link set wlan1 up
+        sleep 3
+    fi
+done
+
+if [ "$WPA_CONNECTED" = false ]; then
+    print_error "Failed to connect after $MAX_RETRIES attempts"
+    print_info "Troubleshooting:"
+    echo "  • Verify SSID is correct: $WIFI_SSID"
+    echo "  • Check password is correct"
+    echo "  • Ensure router is in range"
+    echo "  • Try: sudo iwlist wlan1 scan | grep $WIFI_SSID"
+    exit 1
+fi
+
+echo ""
+
+################################################################################
+# STEP 8: Obtain IP Address via DHCP
+################################################################################
+
+echo "Step 8: Preparing for Service-Managed Connection..."
+echo "----------------------------------------------------"
+
+# CRITICAL FIX: Manual dhcpcd was dying after 5-25 seconds
+# Root causes:
+#   1. Service file used `-t 30` timeout flag (FIXED: removed)
+#   2. Type=oneshot doesn't monitor process (FIXED: added Restart policy)
+#   3. Manual dhcpcd conflicted with service (FIXED: use service from start)
+#
+# Solution: Let systemd service (created in Step 10) manage everything
+# The service will be started immediately after creation
+
+print_info "Manual dhcpcd will be replaced by systemd service..."
+print_info "Service will start in Step 10 after creation"
+log_info "Skipping manual dhcpcd - will use systemd service instead"
+
+# Keep wpa_supplicant running until service takes over
+if ! pgrep -f "wpa_supplicant.*wlan1" >/dev/null; then
+    print_warning "wpa_supplicant not running - will be started by service"
+fi
+
+IP_OBTAINED=true  # Will be verified after service starts
+
+echo ""
+
+################################################################################
+# STEP 9: Test Internet Connectivity
+################################################################################
+
+echo "Step 9: Testing Internet..."
+echo "----------------------------"
+
+if [ "$IP_OBTAINED" = true ]; then
+    print_info "Pinging 8.8.8.8..."
+
+    if ping -c 3 -W 5 -I wlan1 8.8.8.8 &>/dev/null; then
+        print_success "Internet connection working!"
+    else
+        print_warning "Cannot ping 8.8.8.8 (may be router firewall)"
+    fi
+fi
+
+echo ""
+
+################################################################################
+# STEP 10: Create Persistent Service (ROBUST VERSION)
+################################################################################
+
+echo "Step 10: Creating Systemd Service..."
+echo "-------------------------------------"
+
+SERVICE_FILE="/etc/systemd/system/wlan1-internet.service"
+
+print_info "Creating robust systemd service..."
+
+sudo tee "$SERVICE_FILE" > /dev/null << 'EOF'
+[Unit]
+Description=wlan1 Internet Connection (Robust for Pi 3)
+After=network-pre.target
+Before=network.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10
+
+# Disable USB power save
+ExecStartPre=-/bin/bash -c 'echo on > /sys/class/net/wlan1/device/power/control 2>/dev/null || true'
+
+# Kill existing processes
+ExecStartPre=-/usr/bin/killall -9 wpa_supplicant
+ExecStartPre=-/usr/bin/killall -9 dhcpcd
+ExecStartPre=/bin/sleep 3
+
+# Reload driver
+ExecStartPre=-/sbin/modprobe -r mt76x0u
+ExecStartPre=/bin/sleep 2
+ExecStartPre=-/sbin/modprobe mt76x0u
+ExecStartPre=/bin/sleep 3
+
+# Unblock WiFi
+ExecStartPre=-/usr/sbin/rfkill unblock all
+ExecStartPre=-/sbin/rfkill unblock all
+ExecStartPre=/bin/sleep 2
+
+# Reset interface
+ExecStartPre=/sbin/ip link set wlan1 down
+ExecStartPre=/sbin/ip addr flush dev wlan1
+ExecStartPre=/bin/sleep 3
+
+# Bring up interface
+ExecStart=/sbin/ip link set wlan1 up
+ExecStart=/bin/sleep 5
+
+# Disable power management
+ExecStart=/sbin/iwconfig wlan1 power off
+
+# Start wpa_supplicant
+ExecStart=/usr/sbin/wpa_supplicant -B -i wlan1 -c /etc/wpa_supplicant/wpa_supplicant-wlan1.conf -P /var/run/wpa_supplicant-wlan1.pid
+
+# Wait for connection (longer for Pi 3)
+ExecStartPost=/bin/sleep 20
+
+# Get IP via DHCP (NO TIMEOUT - stay running permanently)
+ExecStartPost=/usr/sbin/dhcpcd -4 wlan1
+
+# Wait for IP
+ExecStartPost=/bin/sleep 20
+
+# Verify dhcpcd is running
+ExecStartPost=/bin/bash -c 'pgrep -f "dhcpcd.*wlan1" || exit 1'
+
+# Disable power management again
+ExecStartPost=/sbin/iwconfig wlan1 power off
+
+# Stop services on shutdown
+ExecStop=/usr/bin/killall wpa_supplicant
+ExecStop=/usr/bin/killall dhcpcd
+ExecStop=/sbin/ip link set wlan1 down
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+if [ $? -eq 0 ]; then
+    print_success "Service file created"
+else
+    print_error "Failed to create service"
+    ERRORS=$((ERRORS + 1))
+    exit 1
+fi
+
+# Reload and enable
+print_info "Reloading systemd..."
+sudo systemctl daemon-reload
+log_success "systemd daemon reloaded"
+
+print_info "Enabling service for boot..."
+if sudo systemctl enable wlan1-internet.service; then
+    print_success "Service enabled - will start automatically on boot"
+    log_success "wlan1-internet.service enabled"
+else
+    print_error "Failed to enable service"
+    log_error "Failed to enable wlan1-internet.service"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# CRITICAL FIX: Start the service immediately to take over from manual processes
+print_info "Starting service NOW to replace manual processes..."
+log_info "Starting wlan1-internet.service to replace manual wpa_supplicant/dhcpcd"
+
+# Kill manual processes first to avoid conflicts
+sudo killall -9 wpa_supplicant 2>/dev/null
+sudo killall -9 dhcpcd 2>/dev/null
+sleep 3
+
+# Start the service
+if sudo systemctl start wlan1-internet.service; then
+    print_success "Service started successfully"
+    log_success "wlan1-internet.service started"
+
+    # Wait for service to fully initialize
+    print_info "Waiting for service to initialize (50 seconds)..."
+    sleep 50
+
+    # Verify service is still running
+    if systemctl is-active --quiet wlan1-internet.service; then
+        print_success "Service is active and stable"
+        log_success "wlan1-internet.service confirmed active"
+
+        # Verify we have IP
+        WLAN1_IP=$(ip addr show wlan1 | grep "inet " | grep -v "169.254" | awk '{print $2}' | cut -d'/' -f1)
+        if [ -n "$WLAN1_IP" ]; then
+            print_success "Service obtained IP: $WLAN1_IP"
+            log_success "wlan1 has IP from service: $WLAN1_IP"
+            IP_OBTAINED=true
+        else
+            print_error "Service running but no IP address"
+            log_error "wlan1-internet.service active but no IP"
+            ERRORS=$((ERRORS + 1))
+        fi
+    else
+        print_error "Service started but then failed"
+        log_error "wlan1-internet.service failed after start"
+
+        # Show service status for debugging
+        print_info "Service status:"
+        sudo systemctl status wlan1-internet.service --no-pager | head -20
+
+        ERRORS=$((ERRORS + 1))
+    fi
+else
+    print_error "Failed to start service"
+    log_error "Failed to start wlan1-internet.service"
+    print_info "Service status:"
+    sudo systemctl status wlan1-internet.service --no-pager | head -20
+    ERRORS=$((ERRORS + 1))
+fi
+
+echo ""
+
+################################################################################
+# STEP 11: Create Interface Naming Rules
+################################################################################
+
+echo "Step 11: Creating Persistent Interface Names..."
+echo "------------------------------------------------"
+
+UDEV_RULES="/etc/udev/rules.d/70-persistent-net.rules"
+WLAN0_MAC=$(ip link show wlan0 2>/dev/null | grep "link/ether" | awk '{print $2}')
+
+if [ -n "$WLAN0_MAC" ] && [ -n "$WLAN1_MAC" ]; then
+    sudo tee "$UDEV_RULES" > /dev/null << EOF
+# Field Trainer - Persistent WiFi Interface Names
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$WLAN0_MAC", NAME="wlan0"
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$WLAN1_MAC", NAME="wlan1"
+EOF
+
+    print_success "Interface naming rules created"
+    print_info "wlan0: $WLAN0_MAC"
+    print_info "wlan1: $WLAN1_MAC"
+else
+    print_warning "Could not create naming rules"
+fi
+
+echo ""
+
+################################################################################
+# STEP 12: Create Connection Watchdog
+################################################################################
+
+echo "Step 12: Creating Connection Monitor..."
+echo "----------------------------------------"
+
+print_info "Creating watchdog script to keep wlan1 alive..."
+
+sudo tee /usr/local/bin/wlan1-watchdog.sh > /dev/null << 'EOF'
+#!/bin/bash
+# wlan1 connection watchdog
+
+# Check if wlan1 has IP
+if ! ip addr show wlan1 | grep -q "inet "; then
+    logger "wlan1-watchdog: No IP detected, restarting service"
+    systemctl restart wlan1-internet.service
+    exit 0
+fi
+
+# Check if wpa_supplicant is connected
+if ! wpa_cli -i wlan1 status 2>/dev/null | grep -q "wpa_state=COMPLETED"; then
+    logger "wlan1-watchdog: WiFi not connected, restarting service"
+    systemctl restart wlan1-internet.service
+    exit 0
+fi
+
+# Try to ping gateway
+GATEWAY=$(ip route | grep "^default.*wlan1" | awk '{print $3}')
+if [ -n "$GATEWAY" ]; then
+    if ! ping -c 1 -W 2 -I wlan1 "$GATEWAY" &>/dev/null; then
+        logger "wlan1-watchdog: Cannot ping gateway, restarting service"
+        systemctl restart wlan1-internet.service
+        exit 0
+    fi
+fi
+
+# All good
+exit 0
+EOF
+
+sudo chmod +x /usr/local/bin/wlan1-watchdog.sh
+
+# Add to cron (every 5 minutes)
+CRON_JOB="*/5 * * * * /usr/local/bin/wlan1-watchdog.sh"
+
+if ! crontab -l 2>/dev/null | grep -q "wlan1-watchdog"; then
+    (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
+    print_success "Watchdog cron job installed (runs every 5 min)"
+else
+    print_info "Watchdog already installed"
+fi
+
+echo ""
+
+################################################################################
+# Summary
+################################################################################
+
+echo "============================================="
+echo "Configuration Complete!"
+echo "============================================="
+echo ""
+
+if [ $ERRORS -eq 0 ]; then
+    print_success "wlan1 configured successfully!"
+    echo ""
+
+    print_info "Configuration:"
+    echo "  • WiFi SSID: $WIFI_SSID"
+    echo "  • Interface: wlan1"
+    echo "  • MAC: $WLAN1_MAC"
+
+    if [ -n "$WLAN1_IP" ]; then
+        echo "  • IP Address: $WLAN1_IP"
+        echo ""
+
+        print_success "SSH Access Available!"
+        print_info "Connect from your network:"
+        echo "  ssh pi@$WLAN1_IP"
+        echo ""
+
+        HOSTNAME=$(hostname)
+        if [ -n "$HOSTNAME" ]; then
+            echo "  Or try: ssh pi@${HOSTNAME}.local"
+            echo ""
+        fi
+    fi
+
+    echo ""
+    print_info "Services created:"
+    echo "  • wlan1-internet.service (auto-start on boot)"
+    echo "  • wlan1-watchdog.sh (monitors connection every 5 min)"
+    echo ""
+
+    print_info "Power management:"
+    echo "  • USB autosuspend: disabled"
+    echo "  • WiFi power save: disabled"
+    echo "  • Prevents disconnections on Pi 3"
+    echo ""
+
+    print_info "Useful commands:"
+    echo "  • Check status: sudo wpa_cli -i wlan1 status"
+    echo "  • View IP: ip addr show wlan1"
+    echo "  • Test internet: ping -I wlan1 8.8.8.8"
+    echo "  • Restart: sudo systemctl restart wlan1-internet"
+    echo "  • View logs: sudo journalctl -u wlan1-internet -f"
+    echo ""
+
+    print_info "Next steps:"
+    echo "  1. Verify connection stays up for 5+ minutes"
+    echo "  2. Test SSH from another computer on same WiFi"
+    echo "  3. Continue to Phase 3 (Package Installation) - now has internet!"
+    echo ""
+
+    ############################################################################
+    # CRITICAL: Network Stabilization Wait
+    ############################################################################
+
+    echo ""
+    echo "========================================"
+    print_warning "IMPORTANT: Network Stabilization Period"
+    echo "========================================"
+    echo ""
+    echo "The network connection needs time to fully stabilize before"
+    echo "installing packages. This wait period ensures:"
+    echo "  • DHCP fully completes"
+    echo "  • DNS servers are configured in /etc/resolv.conf"
+    echo "  • Network routes are established"
+    echo "  • Package repositories become reachable"
+    echo ""
+    print_warning "⚠  Waiting for network to stabilize..."
+    echo ""
+    print_info "Waiting 30 seconds for DNS and routes to stabilize..."
+    log_step "Starting 30-second network stabilization wait"
+    echo ""
+
+    # Countdown timer - update every 5 seconds
+    WAIT_TIME=30
+    INTERVAL=5
+    elapsed=0
+
+    while [ $elapsed -lt $WAIT_TIME ]; do
+        remaining=$((WAIT_TIME - elapsed))
+
+        echo -ne "  ⏱  Time remaining: ${remaining}s   \r"
+        sleep $INTERVAL
+        elapsed=$((elapsed + INTERVAL))
+
+        # Debug: Check dhcpcd is still running every interval
+        if ! pgrep -f "dhcpcd.*wlan1" >/dev/null; then
+            echo -ne "\n"
+            print_error "dhcpcd process died during wait!"
+            log_error "dhcpcd process for wlan1 died at ${elapsed}s into stabilization wait"
+            ERRORS=$((ERRORS + 1))
+            break
+        fi
+    done
+
+    echo -ne "  ✓ Network stabilization complete!              \n"
+    log_success "Network stabilization wait completed"
+    echo ""
+
+    # Run post-wait diagnostics
+    print_info "Running post-stabilization diagnostics..."
+    log_step "Running post-stabilization diagnostics"
+    echo ""
+
+    DIAG_ERRORS=0
+
+    # Check 1: wlan1 still has IP
+    echo -n "  Checking wlan1 IP... "
+    WLAN1_CHECK=$(ip addr show wlan1 2>/dev/null | grep "inet " | grep -v "169.254" | awk '{print $2}')
+    if [ -n "$WLAN1_CHECK" ]; then
+        print_success "$WLAN1_CHECK"
+        log_success "wlan1 IP check passed: $WLAN1_CHECK"
+    else
+        print_error "NO IP ADDRESS"
+        log_error "wlan1 has no IP address after stabilization wait"
+        DIAG_ERRORS=$((DIAG_ERRORS + 1))
+    fi
+
+    # Check 2: Internet connectivity
+    echo -n "  Checking internet (ping 8.8.8.8)... "
+    if ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
+        print_success "working"
+        log_success "Internet connectivity check passed"
+    else
+        print_error "FAILED"
+        log_error "Internet connectivity check failed"
+        DIAG_ERRORS=$((DIAG_ERRORS + 1))
+    fi
+
+    # Check 3: DNS resolution
+    echo -n "  Checking DNS resolution... "
+    if host deb.debian.org &>/dev/null || getent hosts deb.debian.org &>/dev/null; then
+        print_success "working"
+        log_success "DNS resolution check passed"
+    else
+        print_warning "FAILED (may cause issues in Phase 3)"
+        log_warning "DNS resolution check failed"
+    fi
+
+    # Check 4: resolv.conf
+    echo -n "  Checking /etc/resolv.conf... "
+    if grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+        NAMESERVER_COUNT=$(grep -c "^nameserver" /etc/resolv.conf)
+        print_success "$NAMESERVER_COUNT nameserver(s) configured"
+        log_success "/etc/resolv.conf has $NAMESERVER_COUNT nameservers"
+    else
+        print_warning "NO NAMESERVERS (will add Google DNS)"
+        log_warning "/etc/resolv.conf has no nameservers, adding Google DNS"
+        echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf > /dev/null
+        echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf > /dev/null
+        log_info "Added Google DNS to /etc/resolv.conf"
+    fi
+
+    echo ""
+
+    if [ $DIAG_ERRORS -eq 0 ]; then
+        print_success "All diagnostic checks passed!"
+        print_success "Network is ready for Phase 3 (Package Installation)"
+        log_success "Post-stabilization diagnostics: ALL PASSED"
+        echo ""
+        log_phase_complete 2
+        echo "Log file: $(get_log_file)"
+        echo ""
+        exit 0
+    else
+        print_error "Post-stabilization diagnostics FAILED ($DIAG_ERRORS critical issues)"
+        echo ""
+        print_info "The connection was lost during the stabilization wait."
+        print_info "This can happen if:"
+        echo "  • SSH session was opened/closed during the wait"
+        echo "  • dhcpcd lease expired"
+        echo "  • Router temporarily blocked the device"
+        echo "  • WiFi power management kicked in"
+        echo ""
+        print_info "Please retry Phase 2. Do NOT open SSH during the 3-minute wait!"
+        echo ""
+        log_error "Phase 2 FAILED: Lost connection during stabilization ($DIAG_ERRORS errors)"
+        log_phase_failed 2 "Post-stabilization diagnostics failed"
+        echo "Log file: $(get_log_file)"
+        echo ""
+        exit 1
+    fi
+else
+    print_error "Found $ERRORS error(s)"
+    print_warning "Review errors above and try again"
+    exit 1
+fi

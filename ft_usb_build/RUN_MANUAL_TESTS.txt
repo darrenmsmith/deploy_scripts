@@ -1,0 +1,90 @@
+================================================================================
+MANUAL MESH TESTS - WITH LOGGING
+================================================================================
+
+These scripts run step-by-step mesh setup and save output to log files
+for review.
+
+================================================================================
+ON DEVICE0 PROD
+================================================================================
+
+Run this to test Device0's mesh setup:
+
+    cd /mnt/usb/ft_usb_build
+    sudo ./manual_mesh_test_device0_logged.sh
+
+Output saves to:
+    /mnt/usb/ft_usb_build/device0_manual_test_YYYYMMDD_HHMMSS.log
+
+This will show:
+- The actual BSSID Device0 is using
+- Whether mesh setup succeeds
+- Whether any clients are connected
+
+Look for the line:
+    ⭐ IMPORTANT: Clients must use BSSID: <actual-bssid> ⭐
+
+================================================================================
+ON A CLIENT DEVICE (Device1-5)
+================================================================================
+
+1. Copy script to client:
+
+    scp /mnt/usb/ft_usb_build/manual_mesh_test_client_logged.sh pi@192.168.99.10X:/tmp/
+
+2. SSH to client and run:
+
+    ssh pi@192.168.99.10X
+    cd /tmp
+    chmod +x manual_mesh_test_client_logged.sh
+    sudo ./manual_mesh_test_client_logged.sh
+
+Output saves to:
+    /tmp/client_manual_test_DeviceX_YYYYMMDD_HHMMSS.log
+
+3. Copy log back to USB:
+
+    # On client
+    scp /tmp/client_manual_test_*.log pi@192.168.99.100:/mnt/usb/ft_usb_build/
+
+================================================================================
+AFTER RUNNING BOTH TESTS
+================================================================================
+
+The log files will be on the USB drive:
+- device0_manual_test_*.log
+- client_manual_test_*.log
+
+Both logs contain:
+- All commands executed
+- All output from each step
+- Configuration values used
+- Whether neighbors were found
+- Any error messages
+
+These can be reviewed to see exactly what's happening and where it fails.
+
+================================================================================
+WHAT TO LOOK FOR IN LOGS
+================================================================================
+
+Device0 log:
+- BSSID that Device0 is using
+- Whether IBSS join succeeded
+- Whether bat0 came up with IP
+- Number of neighbors (if any)
+
+Client log:
+- BSSID the client is trying to use
+- Whether it matches Device0
+- Whether IBSS join succeeded
+- Whether neighbors were found
+- Whether can ping Device0
+
+If both logs show successful IBSS join but no neighbors:
+- Compare BSSIDs - they MUST match exactly
+- Compare SSIDs - they MUST match exactly
+- Check both are using frequency 2412
+
+================================================================================

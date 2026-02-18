@@ -1,0 +1,158 @@
+================================================================================
+MESH STILL NOT WORKING - NEXT STEPS
+================================================================================
+
+You ran fix_client_bssid.sh but still no neighbors on either side.
+
+Let's diagnose what's happening.
+
+================================================================================
+STEP 1: Check if Fix Was Applied
+================================================================================
+
+On the CLIENT device, run:
+
+    scp /mnt/usb/ft_usb_build/show_client_startup_script.sh pi@192.168.99.10X:/tmp/
+    ssh pi@192.168.99.10X
+    cd /tmp
+    chmod +x show_client_startup_script.sh
+    ./show_client_startup_script.sh
+
+This will show:
+- Current configuration values in startup script
+- Whether they match Device0
+- The actual join command being used
+- Full script contents
+
+Look for:
+  ✓ SSID correct (ft_mesh2)
+  ✓ Frequency correct (2412)
+  ✓ BSSID correct (b8:27:eb:3e:4a:99)
+
+If any show ✗, the fix didn't apply properly.
+
+================================================================================
+STEP 2: Run Manual Mesh Test
+================================================================================
+
+On the CLIENT device, run:
+
+    scp /mnt/usb/ft_usb_build/manual_mesh_test.sh pi@192.168.99.10X:/tmp/
+    ssh pi@192.168.99.10X
+    cd /tmp
+    chmod +x manual_mesh_test.sh
+    sudo ./manual_mesh_test.sh
+
+This will:
+- Stop the service
+- Clean up any existing mesh configuration
+- Manually run each step of mesh setup
+- Show exactly where it fails
+- Wait 15 seconds and check for neighbors
+
+Watch for:
+- Does the IBSS join succeed?
+- Does it show the correct SSID and BSSID?
+- Do neighbors appear after 15 seconds?
+
+================================================================================
+STEP 3: Check Device0 is Actually Running
+================================================================================
+
+On Device0 Prod, verify mesh is actually active:
+
+    ssh pi@192.168.99.100
+    sudo systemctl status batman-mesh
+    iw dev wlan0 info
+    sudo batctl n
+
+Expected output:
+- Service: active (exited)
+- wlan0: type IBSS, ssid ft_mesh2
+- batctl n: Shows interface but maybe no neighbors
+
+If Device0 mesh is NOT running:
+    sudo systemctl restart batman-mesh
+    sleep 10
+    iw dev wlan0 info
+
+================================================================================
+COMMON ISSUES
+================================================================================
+
+1. Fix Script Didn't Actually Update the File
+   Symptom: show_client_startup_script.sh shows BSSID still 00:11:22:33:44:55
+   Solution: Manually edit the file
+      sudo nano /usr/local/bin/start-batman-mesh-client.sh
+      Change: MESH_BSSID="00:11:22:33:44:55"
+      To:     MESH_BSSID="b8:27:eb:3e:4a:99"
+      Save and restart: sudo systemctl restart batman-mesh-client
+
+2. Join Command Not Using Variables
+   Symptom: show_client_startup_script.sh shows hardcoded values in join command
+   Example: iw dev wlan0 ibss join ft_mesh2 2412 fixed-freq 00:11:22:33:44:55
+   Solution: Edit script to use variables
+      sudo nano /usr/local/bin/start-batman-mesh-client.sh
+      Change: iw dev wlan0 ibss join ft_mesh2 2412 fixed-freq 00:11:22:33:44:55
+      To:     iw dev ${MESH_IFACE} ibss join ${MESH_SSID} ${MESH_FREQ} fixed-freq ${MESH_BSSID}
+      Save and restart service
+
+3. Device0 Mesh Not Running
+   Symptom: Device0 shows batman-mesh service inactive
+   Solution: Restart Device0 mesh
+      ssh pi@192.168.99.100
+      sudo systemctl restart batman-mesh
+      sleep 10
+      sudo batctl n
+
+4. Both Sides Running But Still No Connection
+   Symptom: Both show IBSS mode, same SSID, but no neighbors
+   Possible causes:
+   - BSSID still doesn't match
+   - Frequency doesn't match
+   - RF interference
+   - Devices too far apart
+   - WiFi hardware issue
+
+================================================================================
+WHAT TO COPY/PASTE BACK
+================================================================================
+
+After running the diagnostic scripts, paste the output of:
+
+1. show_client_startup_script.sh (shows current config)
+2. manual_mesh_test.sh (shows step-by-step test results)
+3. From Device0: iw dev wlan0 info (shows Device0 actual state)
+
+This will help identify exactly what's wrong.
+
+================================================================================
+QUICK MANUAL FIX (if automated fix failed)
+================================================================================
+
+If fix_client_bssid.sh didn't work, try manual edit:
+
+On CLIENT:
+    sudo nano /usr/local/bin/start-batman-mesh-client.sh
+
+Find and change these lines:
+    MESH_SSID="ft_mesh2"
+    MESH_FREQ="2412"
+    MESH_BSSID="b8:27:eb:3e:4a:99"
+
+And make sure the join command uses variables:
+    iw dev ${MESH_IFACE} ibss join ${MESH_SSID} ${MESH_FREQ} fixed-freq ${MESH_BSSID}
+
+NOT hardcoded values like:
+    iw dev wlan0 ibss join ft_mesh2 2412 fixed-freq 00:11:22:33:44:55
+
+Save (Ctrl+X, Y, Enter)
+
+Restart service:
+    sudo systemctl restart batman-mesh-client
+
+Check:
+    sleep 10
+    sudo batctl n
+
+================================================================================

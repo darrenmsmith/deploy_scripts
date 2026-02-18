@@ -1,0 +1,263 @@
+================================================================================
+INSTRUCTIONS FOR RPi 3 A+ - wlan1 Setup with xsmithhome
+================================================================================
+
+PROBLEM: "Match already configured" error when trying to start wpa_supplicant
+CAUSE: Multiple wpa_supplicant processes already running + old configs
+
+SOLUTION: Run cleanup first, then fresh installation with logging
+
+================================================================================
+STEP 1: Run Cleanup Script (REQUIRED FIRST!)
+================================================================================
+
+On RPi 3 A+:
+
+1. Insert this USB drive
+2. Mount it if not auto-mounted:
+   sudo mkdir -p /mnt/usb
+   sudo mount /dev/sda1 /mnt/usb  # Or wherever your USB is
+
+3. Run the cleanup script:
+   cd /mnt/usb/ft_usb_build/phases
+   sudo ./phase2_CLEANUP_FIRST.sh
+
+   This will:
+   - Stop ALL network services
+   - Kill ALL wpa_supplicant processes
+   - Kill ALL dhcpcd processes
+   - Remove all PID/socket/lease files
+   - Reset wlan1 interface
+   - Disable conflicting services
+   - Remove old configs
+   - Reload driver cleanly
+
+4. Verify cleanup succeeded (should say "CLEANUP COMPLETE")
+
+================================================================================
+STEP 2: Run Installation Script (WITH LOGGING)
+================================================================================
+
+Still on RPi 3 A+:
+
+1. Run the installation script:
+   cd /mnt/usb/ft_usb_build/phases
+   sudo ./phase2_RUN_ON_PI3.sh
+
+2. When prompted for WiFi password, enter password for "xsmithhome"
+
+3. Script will:
+   - Show all steps on screen
+   - Log EVERYTHING to /mnt/usb/phase2_install.log
+   - Configure for xsmithhome (not the previous network)
+   - Expected IP: 10.0.0.x (NOT 192.168.x.x)
+
+4. Wait for completion (5-10 minutes)
+
+5. Check final status messages
+
+================================================================================
+STEP 3: Verify Installation
+================================================================================
+
+On RPi 3 A+, verify it worked:
+
+1. Check service:
+   sudo systemctl status wlan1-internet.service
+   # Should show: active (exited)
+
+2. Check connection:
+   sudo wpa_cli -i wlan1 status | grep wpa_state
+   # Should show: wpa_state=COMPLETED
+
+3. Check IP:
+   ip addr show wlan1 | grep "inet "
+   # Should show: 10.0.0.x (your xsmithhome IP range)
+
+4. Test internet:
+   ping -c 5 8.8.8.8
+
+5. Wait 5 minutes and check again (make sure it stays connected!)
+   watch -n 10 'wpa_cli -i wlan1 status | grep wpa_state'
+   # Should stay COMPLETED, NOT disconnect!
+
+================================================================================
+STEP 4: Bring USB Back to RPi 5
+================================================================================
+
+1. Unmount USB on RPi 3:
+   cd ~
+   sudo umount /mnt/usb
+
+2. Remove USB drive from RPi 3
+
+3. Insert USB into RPi 5
+
+4. Mount it:
+   sudo mount /dev/sda1 /mnt/usb  # Or your mount point
+
+5. Check the log:
+   cat /mnt/usb/phase2_install.log | less
+
+   Look for:
+   - "✓" = Success
+   - "✗" = Error
+   - Final IP address
+   - Any error messages
+
+================================================================================
+WHAT TO LOOK FOR IN THE LOG
+================================================================================
+
+SUCCESS indicators:
+  ✓ Driver loaded
+  ✓ wlan1 found
+  ✓ wpa_supplicant started
+  ✓ Connected to xsmithhome
+  ✓ IP obtained: 10.0.0.x
+  ✓ Internet working!
+  ✓ Service created
+  ✓ Service enabled
+
+FAILURE indicators:
+  ✗ wlan1 NOT FOUND
+  ✗ Driver not loaded
+  ✗ Failed to connect after 5 attempts
+  ✗ No IP yet
+  ⚠ Cannot ping 8.8.8.8
+
+================================================================================
+IF IT FAILS
+================================================================================
+
+Check the log for specific errors:
+
+1. "wlan1 NOT FOUND"
+   - Check USB WiFi is plugged in
+   - Try different USB port
+   - Check: lsusb | grep MediaTek
+
+2. "Driver not loaded"
+   - Firmware may be missing
+   - Check: ls /lib/firmware/mediatek/
+
+3. "Failed to connect"
+   - Check password is correct for xsmithhome
+   - Check router is in range
+   - Check: sudo iwlist wlan1 scan | grep xsmithhome
+
+4. "No IP yet"
+   - WiFi connected but DHCP failing
+   - Check router DHCP settings
+   - Try longer wait time
+
+5. Still getting "Match already configured"
+   - Cleanup script didn't work fully
+   - Try manual cleanup (see MANUAL_CLEANUP section below)
+
+================================================================================
+MANUAL CLEANUP (If Cleanup Script Fails)
+================================================================================
+
+If you still get "Match already configured":
+
+sudo systemctl stop wlan1-internet.service
+sudo systemctl stop wpa_supplicant@wlan1.service
+sudo systemctl stop wpa_supplicant.service
+sudo systemctl mask wpa_supplicant@wlan1.service
+
+sudo killall -9 wpa_supplicant
+sudo killall -9 dhcpcd
+
+sudo rm -rf /var/run/wpa_supplicant/*
+sudo rm -rf /run/wpa_supplicant/*
+sudo mkdir -p /run/wpa_supplicant
+sudo chown root:netdev /run/wpa_supplicant
+
+sudo rm -f /etc/wpa_supplicant/wpa_supplicant-wlan1.conf
+
+sudo ip link set wlan1 down
+sudo ip addr flush dev wlan1
+
+sudo modprobe -r mt76x0u
+sleep 3
+sudo modprobe mt76x0u
+sleep 3
+
+Then try running phase2_RUN_ON_PI3.sh again
+
+================================================================================
+FILES ON USB
+================================================================================
+
+Scripts (in /mnt/usb/ft_usb_build/phases/):
+  phase2_CLEANUP_FIRST.sh      - Run FIRST to clean everything
+  phase2_RUN_ON_PI3.sh          - Run SECOND for installation (logs to USB)
+  phase2_internet_ROBUST.sh     - Alternative (no logging)
+
+Documentation:
+  /mnt/usb/INSTRUCTIONS_RPI3.txt           - This file
+  /mnt/usb/ft_usb_build/PHASE2_TROUBLESHOOTING.md
+  /mnt/usb/ft_usb_build/README_PHASE2_FIX.txt
+
+Log file (created after running):
+  /mnt/usb/phase2_install.log   - Full installation log
+
+================================================================================
+WORKFLOW SUMMARY
+================================================================================
+
+1. Insert USB into RPi 3 A+
+2. sudo ./phase2_CLEANUP_FIRST.sh
+3. sudo ./phase2_RUN_ON_PI3.sh
+4. Enter xsmithhome password when prompted
+5. Wait for completion
+6. Verify it works (ping, check IP, wait 5 min)
+7. Remove USB from RPi 3
+8. Insert USB into RPi 5
+9. Read /mnt/usb/phase2_install.log
+10. Analyze results
+
+================================================================================
+EXPECTED RESULTS
+================================================================================
+
+After successful installation:
+
+1. wlan1 connects to xsmithhome automatically
+2. Gets IP in 10.0.0.x range
+3. Internet works (can ping 8.8.8.8)
+4. Connection stays stable (no disconnects)
+5. SSH works from other devices on xsmithhome network
+6. After reboot, wlan1 auto-connects
+
+If you see all of these, SUCCESS! ✓
+
+================================================================================
+SSH ACCESS
+================================================================================
+
+Once wlan1 is working with IP 10.0.0.61 (or similar):
+
+From another computer on xsmithhome network:
+  ssh pi@10.0.0.61
+
+Or using hostname (if mDNS works):
+  ssh pi@raspberrypi.local
+  # Or whatever the hostname is
+
+Then you can continue with Field Trainer installation remotely!
+
+================================================================================
+NEXT STEPS AFTER SUCCESS
+================================================================================
+
+1. Verify wlan1 stable for 10+ minutes
+2. Test SSH access from another device
+3. Reboot and verify auto-connects
+4. Continue with Phase 1 (Package Installation)
+5. Packages will install via wlan1 internet connection
+
+================================================================================
+
+Questions? Check the log file and PHASE2_TROUBLESHOOTING.md

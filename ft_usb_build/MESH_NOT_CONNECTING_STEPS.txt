@@ -1,0 +1,164 @@
+================================================================================
+MESH NOT CONNECTING - QUICK DEBUG STEPS
+================================================================================
+
+Device0 mesh is ACTIVE (confirmed via admin page)
+Problem: Clients not showing up as neighbors on Device0
+
+This is a CLIENT-SIDE issue.
+
+================================================================================
+STEP 1: Get Device0 Mesh Configuration
+================================================================================
+
+On Device0 Prod, run:
+
+    cd /mnt/usb/ft_usb_build
+    sudo ./get_device0_mesh_config.sh
+
+This will show you:
+- MESH_SSID
+- MESH_FREQ
+- MESH_BSSID
+
+COPY THESE VALUES - you'll need to compare them to the client.
+
+================================================================================
+STEP 2: Copy Check Script to Client
+================================================================================
+
+Which client device are you testing?
+- Device1 = 192.168.99.101
+- Device2 = 192.168.99.102
+- Device3 = 192.168.99.103
+- Device4 = 192.168.99.104
+- Device5 = 192.168.99.105
+
+From Device0, copy the check script to the client:
+
+    scp /mnt/usb/ft_usb_build/check_client_mesh_config.sh pi@192.168.99.101:/tmp/
+
+(Replace .101 with your client IP)
+
+================================================================================
+STEP 3: Run Check Script on Client
+================================================================================
+
+SSH to the client:
+
+    ssh pi@192.168.99.101
+
+Run the check script:
+
+    cd /tmp
+    chmod +x check_client_mesh_config.sh
+    sudo ./check_client_mesh_config.sh
+
+This will show:
+- Service status (enabled? active?)
+- Client configuration (SSID, FREQ, BSSID)
+- wlan0 status (in IBSS mode?)
+- bat0 status (interface exists?)
+- Neighbors (any found?)
+- Connectivity (can ping Device0?)
+
+================================================================================
+STEP 4: Compare Configurations
+================================================================================
+
+Compare the output from:
+- Step 1 (Device0 config)
+- Step 3 (Client config)
+
+The values MUST MATCH EXACTLY:
+- MESH_SSID must be identical
+- MESH_FREQ must be identical
+- MESH_BSSID must be identical
+
+If ANY value is different, that's the problem!
+
+================================================================================
+COMMON FIXES
+================================================================================
+
+1. SERVICE NOT ENABLED
+
+   On client:
+       sudo systemctl enable batman-mesh-client
+       sudo systemctl start batman-mesh-client
+       sudo batctl n
+
+2. SERVICE NOT RUNNING
+
+   On client:
+       sudo systemctl start batman-mesh-client
+       sudo batctl n
+
+3. CONFIGURATION MISMATCH
+
+   On client, edit the startup script:
+       sudo nano /usr/local/bin/start-batman-mesh-client.sh
+
+   Update these lines to match Device0:
+       MESH_SSID="<value-from-device0>"
+       MESH_FREQ="<value-from-device0>"
+       MESH_BSSID="<value-from-device0>"
+
+   Save (Ctrl+X, Y, Enter)
+
+   Restart service:
+       sudo systemctl restart batman-mesh-client
+
+   Check neighbors:
+       sudo batctl n
+
+   (Wait 10 seconds, then check again)
+
+4. SERVICE FAILS TO START
+
+   Check logs on client:
+       sudo journalctl -u batman-mesh-client -n 50
+
+   Try manual run to see errors:
+       sudo /usr/local/bin/start-batman-mesh-client.sh
+
+   This will show you the exact error.
+
+================================================================================
+EXPECTED WORKING STATE
+================================================================================
+
+On Device0:
+    sudo batctl n
+
+    Should show:
+    wlan0    <client-mac>    0.XXXs
+
+On Client:
+    sudo batctl n
+
+    Should show:
+    wlan0    <device0-mac>   0.XXXs
+
+Both wlan0 interfaces should be in IBSS mode:
+    iw dev wlan0 info
+
+    Should show:
+    type IBSS
+    ssid <same-ssid-name>
+
+Client should be able to ping Device0:
+    ping 192.168.99.100
+
+================================================================================
+PASTE YOUR RESULTS HERE
+================================================================================
+
+When you run the scripts, paste the output so we can see:
+
+1. Device0 mesh config (from get_device0_mesh_config.sh)
+2. Client check results (from check_client_mesh_config.sh)
+
+This will show us exactly what's wrong.
+
+================================================================================

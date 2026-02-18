@@ -1,0 +1,339 @@
+════════════════════════════════════════════════════════════
+  Client Phase 4: Mesh Network Join
+  Log file: /tmp/phase4_mesh_20260108_141111.log
+════════════════════════════════════════════════════════════
+
+[2026-01-08 14:11:11] STEP: Step 1: Detecting device number from hostname
+[2026-01-08 14:11:11] STEP: Step 1: Detecting device number from hostname
+Current hostname: Device1
+[0;32m✓ Device number: 1[0m
+[2026-01-08 14:11:11] SUCCESS: Device number: 1
+[2026-01-08 14:11:11] SUCCESS: Target IP: 192.168.99.101
+[0;32m✓ Target IP: 192.168.99.101[0m
+[2026-01-08 14:11:11] STEP: Step 2: Mesh network configuration
+[2026-01-08 14:11:11] STEP: Step 2: Mesh network configuration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Mesh Network Settings
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The mesh network SSID must match Device0's configuration
+Check Device0: sudo batctl if
+
+Enter mesh SSID (default: ft_mesh): Enter mesh channel (default: 1): [0;32m✓ Configuration entered:[0m
+[2026-01-08 14:11:23] SUCCESS: Configuration entered:
+  SSID: ft_mesh2
+  Channel: 1
+  BSSID: 00:11:22:33:44:55
+  Frequency: 2412 MHz
+[2026-01-08 14:11:23] STEP: Step 3: Verifying wlan0 (onboard WiFi)
+[2026-01-08 14:11:23] STEP: Step 3: Verifying wlan0 (onboard WiFi)
+[0;32m✓ wlan0 interface exists[0m
+[2026-01-08 14:11:23] SUCCESS: wlan0 interface exists
+  Current state: DOWN
+  MAC address: b8:27:eb:ac:14:18
+Bringing down wlan0...
+[2026-01-08 14:11:24] STEP: Step 4: Configuring NetworkManager to ignore wlan0
+[2026-01-08 14:11:24] STEP: Step 4: Configuring NetworkManager to ignore wlan0
+
+NetworkManager interferes with mesh networking by trying to manage wlan0.
+We will mark wlan0 as 'unmanaged' so NetworkManager ignores it.
+This allows wlan1 (if present) to remain available for other uses.
+
+[2026-01-08 14:11:24] INFO: NetworkManager detected - configuring to ignore wlan0
+Creating NetworkManager unmanaged config...
+[0;32m✓ NetworkManager config created[0m
+[2026-01-08 14:11:25] SUCCESS: NetworkManager config created
+Restarting NetworkManager to apply configuration...
+
+NetworkManager device status:
+DEVICE  TYPE      STATE                   CONNECTION 
+lo      loopback  connected (externally)  lo         
+wlan1   wifi      unavailable             --         
+wlan0   wifi      unmanaged               --         
+DEVICE  TYPE      STATE                   CONNECTION 
+lo      loopback  connected (externally)  lo         
+wlan1   wifi      unavailable             --         
+wlan0   wifi      unmanaged               --         
+
+wlan0 NetworkManager state: unmanaged
+[0;32m✓ wlan0 is now unmanaged by NetworkManager[0m
+[2026-01-08 14:11:51] SUCCESS: wlan0 is now unmanaged by NetworkManager
+[2026-01-08 14:11:51] INFO: wlan1 detected - NetworkManager state: unavailable
+  wlan1 is available for NetworkManager (internet connectivity, etc.)
+[0;32m✓ NetworkManager configured - wlan0 unmanaged, wlan1 available[0m
+[2026-01-08 14:11:51] SUCCESS: NetworkManager configured - wlan0 unmanaged, wlan1 available
+
+[2026-01-08 14:11:51] STEP: Step 5: Loading BATMAN-adv kernel module
+[2026-01-08 14:11:51] STEP: Step 5: Loading BATMAN-adv kernel module
+[0;32m✓ batman-adv module loaded[0m
+[2026-01-08 14:11:51] SUCCESS: batman-adv module loaded
+BATMAN modules:
+batman_adv            212992  0
+bridge                249856  1 batman_adv
+stp                    12288  2 garp,bridge
+llc                    12288  3 garp,bridge,stp
+cfg80211              888832  4 mac80211,batman_adv,brcmfmac,rtl8xxxu
+ipv6                  512000  41 bridge
+[2026-01-08 14:11:52] STEP: Step 6: Unblocking RF-kill for WiFi
+[2026-01-08 14:11:52] STEP: Step 6: Unblocking RF-kill for WiFi
+
+RF-kill can block WiFi hardware. We need to unblock it before using wlan0.
+
+Current RF-kill status:
+0: hci0: Bluetooth
+	Soft blocked: yes
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: yes
+	Hard blocked: no
+2: phy1: Wireless LAN
+	Soft blocked: yes
+	Hard blocked: no
+0: hci0: Bluetooth
+	Soft blocked: yes
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: yes
+	Hard blocked: no
+2: phy1: Wireless LAN
+	Soft blocked: yes
+	Hard blocked: no
+
+Unblocking WiFi devices...
+
+RF-kill status after unblock:
+0: hci0: Bluetooth
+	Soft blocked: no
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+2: phy1: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+0: hci0: Bluetooth
+	Soft blocked: no
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+2: phy1: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+
+[0;32m✓ RF-kill unblocked - WiFi hardware ready[0m
+[2026-01-08 14:11:55] SUCCESS: RF-kill unblocked - WiFi hardware ready
+
+[2026-01-08 14:11:55] STEP: Step 7: Configuring wlan0 for IBSS (Ad-hoc) mode
+[2026-01-08 14:11:55] STEP: Step 7: Configuring wlan0 for IBSS (Ad-hoc) mode
+Setting wlan0 to IBSS mode...
+[0;32m✓ wlan0 set to IBSS mode[0m
+[2026-01-08 14:11:55] SUCCESS: wlan0 set to IBSS mode
+Bringing up wlan0...
+[0;32m✓ wlan0 interface brought up[0m
+[2026-01-08 14:11:56] SUCCESS: wlan0 interface brought up
+wlan0 state after bringing up: DOWN
+[1;33m⚠ wlan0 not in UP state (state: DOWN)[0m
+[2026-01-08 14:11:58] WARNING: wlan0 not in UP state (state: DOWN)
+Continuing anyway...
+[2026-01-08 14:11:58] STEP: Step 8: Joining IBSS mesh network: ft_mesh2
+[2026-01-08 14:11:58] STEP: Step 8: Joining IBSS mesh network: ft_mesh2
+Command: iw dev wlan0 ibss join ft_mesh2 2412 fixed-freq 00:11:22:33:44:55
+[0;32m✓ Joined IBSS network[0m
+[2026-01-08 14:11:58] SUCCESS: Joined IBSS network
+Verifying IBSS mode...
+Interface wlan0
+	ifindex 2
+	wdev 0x1
+	addr b8:27:eb:ac:14:18
+	ssid ft_mesh2
+	type IBSS
+	wiphy 0
+	channel 1 (2412 MHz), width: 20 MHz, center1: 2412 MHz
+	txpower 31.00 dBm
+Interface wlan0
+	ifindex 2
+	wdev 0x1
+	addr b8:27:eb:ac:14:18
+	ssid ft_mesh2
+	type IBSS
+	wiphy 0
+	channel 1 (2412 MHz), width: 20 MHz, center1: 2412 MHz
+	txpower 31.00 dBm
+[0;32m✓ wlan0 confirmed in IBSS mode[0m
+[2026-01-08 14:12:01] SUCCESS: wlan0 confirmed in IBSS mode
+[2026-01-08 14:12:01] STEP: Step 9: Adding wlan0 to BATMAN-adv
+[2026-01-08 14:12:01] STEP: Step 9: Adding wlan0 to BATMAN-adv
+[0;32m✓ wlan0 added to batman-adv[0m
+[2026-01-08 14:12:02] SUCCESS: wlan0 added to batman-adv
+Verifying batman-adv interface...
+wlan0: active
+wlan0: active
+[2026-01-08 14:12:04] STEP: Step 10: Bringing up bat0 virtual interface
+[2026-01-08 14:12:04] STEP: Step 10: Bringing up bat0 virtual interface
+[0;32m✓ bat0 interface up[0m
+[2026-01-08 14:12:04] SUCCESS: bat0 interface up
+[0;32m✓ bat0 interface verified[0m
+[2026-01-08 14:12:07] SUCCESS: bat0 interface verified
+4: bat0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+[2026-01-08 14:12:07] STEP: Step 11: Assigning IP 192.168.99.101 to bat0
+[2026-01-08 14:12:07] STEP: Step 11: Assigning IP 192.168.99.101 to bat0
+[0;32m✓ IP assigned to bat0[0m
+[2026-01-08 14:12:07] SUCCESS: IP assigned to bat0
+[0;32m✓ Verified: bat0 has IP 192.168.99.101/24[0m
+[2026-01-08 14:12:07] SUCCESS: Verified: bat0 has IP 192.168.99.101/24
+[2026-01-08 14:12:07] STEP: Step 12: Testing connection to Device0 (192.168.99.100)
+[2026-01-08 14:12:07] STEP: Step 12: Testing connection to Device0 (192.168.99.100)
+Waiting 5 seconds for mesh to establish...
+Attempting ping to Device0...
+PING 192.168.99.100 (192.168.99.100) 56(84) bytes of data.
+From 192.168.99.101 icmp_seq=1 Destination Host Unreachable
+From 192.168.99.101 icmp_seq=2 Destination Host Unreachable
+From 192.168.99.101 icmp_seq=3 Destination Host Unreachable
+
+--- 192.168.99.100 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 2052ms
+pipe 3
+PING 192.168.99.100 (192.168.99.100) 56(84) bytes of data.
+From 192.168.99.101 icmp_seq=1 Destination Host Unreachable
+From 192.168.99.101 icmp_seq=2 Destination Host Unreachable
+From 192.168.99.101 icmp_seq=3 Destination Host Unreachable
+
+--- 192.168.99.100 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 2052ms
+pipe 3
+[2026-01-08 14:12:15] SUCCESS: Can ping Device0!
+[0;32m✓ Can ping Device0![0m
+[2026-01-08 14:12:15] STEP: Step 13: Checking mesh neighbors
+[2026-01-08 14:12:15] STEP: Step 13: Checking mesh neighbors
+Batman-adv neighbor list:
+[B.A.T.M.A.N. adv 2024.2, MainIF/MAC: wlan0/b8:27:eb:ac:14:18 (bat0/f6:01:db:0e:62:3d BATMAN_IV)]
+IF             Neighbor              last-seen
+        wlan0	  b8:27:eb:d5:4e:95    0.490s
+        wlan0	  b8:27:eb:53:61:39    0.650s
+        wlan0	  b8:27:eb:61:4b:0e    0.920s
+        wlan0	  b8:27:eb:3e:4a:99    0.160s
+        wlan0	  b8:27:eb:a9:54:36    1.020s
+[B.A.T.M.A.N. adv 2024.2, MainIF/MAC: wlan0/b8:27:eb:ac:14:18 (bat0/f6:01:db:0e:62:3d BATMAN_IV)]
+IF             Neighbor              last-seen
+        wlan0	  b8:27:eb:d5:4e:95    0.490s
+        wlan0	  b8:27:eb:53:61:39    0.650s
+        wlan0	  b8:27:eb:61:4b:0e    0.920s
+        wlan0	  b8:27:eb:3e:4a:99    0.160s
+        wlan0	  b8:27:eb:a9:54:36    1.020s
+[2026-01-08 14:12:16] INFO: Neighbors detected (may not include Device0 yet)
+[2026-01-08 14:12:16] STEP: Step 14: Configuring wlan1 for WiFi/Internet (Optional)
+[2026-01-08 14:12:16] STEP: Step 14: Configuring wlan1 for WiFi/Internet (Optional)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+wlan1 Configuration (Optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+If you have an external USB WiFi adapter (wlan1), you can configure it
+to connect to your development WiFi network for:
+  • Direct SSH access from your laptop
+  • Internet connectivity for updates
+  • File transfers and debugging
+
+Note: wlan0 will continue to handle the mesh network to Device0
+
+[0;32m✓ wlan1 interface detected[0m
+[2026-01-08 14:12:16] SUCCESS: wlan1 interface detected
+  wlan1 MAC address: 98:48:27:bc:90:da
+
+Do you want to configure wlan1 for WiFi connectivity? (y/n): 
+Scanning for available WiFi networks on wlan1...
+
+IN-USE  BSSID  SSID  MODE  CHAN  RATE  SIGNAL  BARS  SECURITY 
+
+Enter WiFi SSID to connect to: Enter WiFi password: 
+
+Connecting wlan1 to 'smithhome'...
+Error: No network with SSID 'smithhome' found.
+Error: No network with SSID 'smithhome' found.
+[0;32m✓ wlan1 connected to WiFi[0m
+[2026-01-08 14:12:56] SUCCESS: wlan1 connected to WiFi
+[0;32m✓ wlan1 IP address: 192.168.7.129[0m
+[2026-01-08 14:13:00] SUCCESS: wlan1 IP address: 192.168.7.129
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SSH Access Information
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  You can now SSH to this device from your laptop:
+
+    ssh pi@192.168.7.129
+
+  Network Configuration:
+    wlan0 (mesh): 192.168.99.101 → Device0 mesh network
+    wlan1 (WiFi): 192.168.7.129 → Your WiFi network
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+[2026-01-08 14:13:00] STEP: Step 15: Creating systemd service for mesh network
+[2026-01-08 14:13:00] STEP: Step 15: Creating systemd service for mesh network
+[0;32m✓ Systemd service created[0m
+[2026-01-08 14:13:00] SUCCESS: Systemd service created
+[2026-01-08 14:13:00] STEP: Step 16: Creating mesh startup script
+[2026-01-08 14:13:00] STEP: Step 16: Creating mesh startup script
+[0;32m✓ Startup script created: /usr/local/bin/start-batman-mesh-client.sh[0m
+[2026-01-08 14:13:01] SUCCESS: Startup script created: /usr/local/bin/start-batman-mesh-client.sh
+[2026-01-08 14:13:01] STEP: Step 17: Creating mesh shutdown script
+[2026-01-08 14:13:01] STEP: Step 17: Creating mesh shutdown script
+[0;32m✓ Shutdown script created[0m
+[2026-01-08 14:13:01] SUCCESS: Shutdown script created
+[2026-01-08 14:13:01] STEP: Step 18: Enabling mesh service
+[2026-01-08 14:13:01] STEP: Step 18: Enabling mesh service
+Created symlink '/etc/systemd/system/multi-user.target.wants/batman-mesh-client.service' → '/etc/systemd/system/batman-mesh-client.service'.
+Created symlink '/etc/systemd/system/multi-user.target.wants/batman-mesh-client.service' → '/etc/systemd/system/batman-mesh-client.service'.
+[0;32m✓ Mesh service enabled (will start on boot)[0m
+[2026-01-08 14:13:22] SUCCESS: Mesh service enabled (will start on boot)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 4 Configuration Summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Device: Device1
+
+  Mesh Network (wlan0):
+    • IP Address: 192.168.99.101
+    • Mesh SSID: ft_mesh2
+    • Channel: 1
+    • Mode: IBSS (Ad-hoc)
+    • Purpose: BATMAN-adv mesh to Device0
+
+  WiFi Network (wlan1):
+    • IP Address: 192.168.7.129
+    • Purpose: SSH access, internet, development
+    • Auto-connect: Enabled
+
+  SSH Access:
+    ssh pi@192.168.7.129
+
+  Status:
+    ✓ NetworkManager: wlan0 unmanaged, wlan1 available
+    ✓ wlan0 in IBSS mode
+    ✓ BATMAN-adv active
+    ✓ bat0 interface up
+    ✓ Static IP assigned: 192.168.99.101
+    ✓ Systemd service enabled
+
+  Test Commands:
+    ping 192.168.99.100          # Ping Device0 via mesh
+    sudo batctl n                # View mesh neighbors
+    iw dev wlan0 info            # Check wlan0 mesh status
+    ip addr show bat0            # Check bat0 IP
+    ip addr show wlan1           # Check wlan1 WiFi status
+    nmcli device status          # Show all network devices
+
+  Log file saved to: /tmp/phase4_mesh_20260108_141111.log
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[0;32m✓ Phase 4 complete![0m
+[2026-01-08 14:13:23] SUCCESS: Phase 4 complete!
+
+Ready for Phase 5: Client Application Deployment
+

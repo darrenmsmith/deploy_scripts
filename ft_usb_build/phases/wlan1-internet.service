@@ -1,0 +1,20 @@
+[Unit]
+Description=Connect wlan1 (USB WiFi) to Internet
+After=network.target
+Before=batman-mesh.service
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 5
+ExecStartPre=/usr/sbin/rfkill unblock wifi
+ExecStartPre=/sbin/ip link set wlan1 down
+ExecStart=/sbin/ip link set wlan1 up
+ExecStart=/usr/bin/sleep 2
+ExecStart=/sbin/wpa_supplicant -B -i wlan1 -c /etc/wpa_supplicant/wpa_supplicant-wlan1.conf
+ExecStartPost=/bin/sleep 10
+ExecStartPost=/sbin/dhcpcd wlan1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
