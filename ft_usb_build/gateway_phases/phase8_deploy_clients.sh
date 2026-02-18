@@ -74,10 +74,69 @@ read -p "Press Enter to begin deployment..."
 echo ""
 
 ################################################################################
-# Step 1: Verify source files exist
+# Step 1: Copy SSH Keys to Client Devices
 ################################################################################
 
-echo "Step 1: Verifying Source Files..."
+echo "Step 1: Setting Up SSH Keys..."
+echo "------------------------------"
+echo ""
+print_info "SSH key auth is required for deployment."
+print_info "You will be prompted for the pi password on each device."
+print_info "(Default password is usually: raspberry)"
+echo ""
+
+SSH_PUB_KEY="$HOME/.ssh/id_ed25519.pub"
+if [ ! -f "$SSH_PUB_KEY" ]; then
+    SSH_PUB_KEY="$HOME/.ssh/id_rsa.pub"
+fi
+
+if [ ! -f "$SSH_PUB_KEY" ]; then
+    print_warning "No SSH public key found - generating one..."
+    ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q
+    SSH_PUB_KEY="$HOME/.ssh/id_ed25519.pub"
+    print_success "SSH key generated"
+fi
+
+print_info "Using key: $SSH_PUB_KEY"
+echo ""
+
+for LAST_OCTET in "${DEVICES[@]}"; do
+    DEVICE_IP="192.168.99.${LAST_OCTET}"
+    DEVICE_NUM=$((LAST_OCTET - 100))
+    DEVICE_NAME="Device${DEVICE_NUM}"
+
+    echo -n "  ${DEVICE_NAME} (${DEVICE_IP})... "
+
+    # Skip if unreachable
+    if ! ping -c 1 -W 2 "${DEVICE_IP}" &>/dev/null; then
+        print_warning "unreachable - skipping"
+        continue
+    fi
+
+    # Already have key auth?
+    if ssh -o ConnectTimeout=3 -o BatchMode=yes "${SSH_USER}@${DEVICE_IP}" "exit" 2>/dev/null; then
+        print_success "key already installed"
+        continue
+    fi
+
+    # Copy key (will prompt for password)
+    echo ""
+    print_info "  Enter password for pi@${DEVICE_IP}:"
+    if ssh-copy-id -i "$SSH_PUB_KEY" -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${SSH_USER}@${DEVICE_IP}" 2>/dev/null; then
+        print_success "  ${DEVICE_NAME} key installed"
+    else
+        print_warning "  ${DEVICE_NAME} key copy failed - will retry during deploy"
+    fi
+    echo ""
+done
+
+echo ""
+
+################################################################################
+# Step 2: Verify source files exist
+################################################################################
+
+echo "Step 2: Verifying Source Files..."
 echo "----------------------------------"
 
 MISSING=0
@@ -102,7 +161,7 @@ fi
 # Step 2: Deploy to each device
 ################################################################################
 
-echo "Step 2: Deploying to Client Devices..."
+echo "Step 3: Deploying to Client Devices..."
 echo "--------------------------------------"
 echo ""
 
