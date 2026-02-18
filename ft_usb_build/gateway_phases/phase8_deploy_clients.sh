@@ -201,18 +201,19 @@ for LAST_OCTET in "${DEVICES[@]}"; do
     ssh "${SSH_USER}@${DEVICE_IP}" "sudo systemctl stop field-client 2>/dev/null; true" 2>/dev/null
     print_success "done"
 
-    # Copy files
+    # Copy files to /tmp first (always writable), then sudo move to /opt
     echo -n "  Copying files... "
     COPY_ERRORS=0
+    ssh "${SSH_USER}@${DEVICE_IP}" "mkdir -p /tmp/ft_update" 2>/dev/null
     for f in "${CLIENT_FILES[@]}"; do
-        if ! scp -q "${SOURCE_DIR}/${f}" "${SSH_USER}@${DEVICE_IP}:${DEST_DIR}/${f}" 2>/dev/null; then
+        if ! scp -q "${SOURCE_DIR}/${f}" "${SSH_USER}@${DEVICE_IP}:/tmp/ft_update/${f}" 2>/dev/null; then
             print_error "failed to copy ${f}"
             COPY_ERRORS=$((COPY_ERRORS + 1))
         fi
     done
 
     if [ $COPY_ERRORS -eq 0 ]; then
-        print_success "${#CLIENT_FILES[@]} files copied"
+        print_success "${#CLIENT_FILES[@]} files staged"
     else
         print_error "${COPY_ERRORS} file(s) failed to copy"
         FAILED=$((FAILED + 1))
@@ -220,14 +221,21 @@ for LAST_OCTET in "${DEVICES[@]}"; do
         continue
     fi
 
-    # Fix permissions
-    echo -n "  Setting permissions... "
-    PERM_CMD="sudo chown pi:pi"
+    # Move from /tmp to /opt with sudo and fix permissions
+    echo -n "  Installing to /opt... "
+    MOVE_CMD="sudo cp /tmp/ft_update/* ${DEST_DIR}/ && sudo chown pi:pi"
     for f in "${CLIENT_FILES[@]}"; do
-        PERM_CMD="${PERM_CMD} ${DEST_DIR}/${f}"
+        MOVE_CMD="${MOVE_CMD} ${DEST_DIR}/${f}"
     done
-    ssh "${SSH_USER}@${DEVICE_IP}" "$PERM_CMD" 2>/dev/null
-    print_success "done"
+    MOVE_CMD="${MOVE_CMD} && rm -rf /tmp/ft_update"
+    if ssh "${SSH_USER}@${DEVICE_IP}" "$MOVE_CMD" 2>/dev/null; then
+        print_success "done"
+    else
+        print_error "failed to install files"
+        FAILED=$((FAILED + 1))
+        echo ""
+        continue
+    fi
 
     # Restart client service
     echo -n "  Starting field-client service... "
