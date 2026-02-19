@@ -668,6 +668,11 @@ StandardError=journal
 
 # Environment
 Environment="PYTHONUNBUFFERED=1"
+Environment="FIELD_TRAINER_ENABLE_SERVER_AUDIO=1"
+Environment="FIELD_TRAINER_ENABLE_SERVER_LED=1"
+Environment="FIELD_TRAINER_LED_PIN=12"
+Environment="FIELD_TRAINER_LED_COUNT=15"
+Environment="FIELD_TRAINER_LED_BRIGHTNESS=128"
 
 [Install]
 WantedBy=multi-user.target

@@ -402,6 +402,53 @@ print_warning "Note: A reboot may be required for I2C/SPI changes to take effect
 echo ""
 
 ################################################################################
+# Step 10: Configure I2S Audio (MAX98357A)
+################################################################################
+
+echo "Step 10: Configuring I2S Audio (MAX98357A amplifier)..."
+echo "---------------------------------------------------------"
+
+CONFIG_FILE="/boot/firmware/config.txt"
+AUDIO_CHANGED=0
+
+# Disable BCM2835 audio (conflicts with I2S)
+if grep -q "^dtparam=audio=on" "$CONFIG_FILE"; then
+    sudo sed -i 's/^dtparam=audio=on/#dtparam=audio=on/' "$CONFIG_FILE"
+    print_info "Disabled BCM2835 audio (conflicts with I2S)"
+    AUDIO_CHANGED=1
+else
+    print_info "BCM2835 audio already disabled"
+fi
+
+# Enable I2S interface
+if grep -q "^dtparam=i2s=on" "$CONFIG_FILE"; then
+    print_info "I2S already enabled"
+elif grep -q "^#dtparam=i2s=on" "$CONFIG_FILE"; then
+    sudo sed -i 's/^#dtparam=i2s=on/dtparam=i2s=on/' "$CONFIG_FILE"
+    print_success "I2S enabled in config.txt"
+    AUDIO_CHANGED=1
+else
+    echo "dtparam=i2s=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    print_success "I2S added to config.txt"
+    AUDIO_CHANGED=1
+fi
+
+# Add MAX98357A overlay
+if grep -q "dtoverlay=max98357a" "$CONFIG_FILE"; then
+    print_info "MAX98357A overlay already configured"
+else
+    echo "dtoverlay=max98357a" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    print_success "MAX98357A overlay added to config.txt"
+    AUDIO_CHANGED=1
+fi
+
+if [ $AUDIO_CHANGED -eq 1 ]; then
+    print_warning "Audio config changed - reboot required before audio will work"
+fi
+
+echo ""
+
+################################################################################
 # Summary
 ################################################################################
 
@@ -420,8 +467,13 @@ if [ $ERRORS -eq 0 ]; then
     echo "  ✓ I2C enabled (for touch sensor)"
     echo "  ✓ SPI enabled (for LED control)"
     echo "  ✓ WiFi interface names locked (wlan0=mesh, wlan1=internet)"
+    if [ $AUDIO_CHANGED -eq 1 ]; then
+        echo "  ✓ I2S / MAX98357A audio configured (reboot required)"
+    else
+        echo "  ✓ I2S / MAX98357A audio already configured"
+    fi
     echo ""
-    print_warning "IMPORTANT: Reboot required for WiFi udev rules to take effect"
+    print_warning "IMPORTANT: Reboot required for udev rules and audio to take effect"
     echo ""
     read -p "Reboot now? (y/n): " do_reboot
     if [[ $do_reboot =~ ^[Yy]$ ]]; then

@@ -53,6 +53,11 @@ CLIENT_FILES=(
     "shutdown_leds.py"
 )
 
+# Directories to deploy to each client cone
+CLIENT_DIRS=(
+    "field_trainer/audio"
+)
+
 echo "Phase 8: Deploy Client Application to Field Cones"
 echo "=================================================="
 echo ""
@@ -67,6 +72,15 @@ for f in "${CLIENT_FILES[@]}"; do
         printf "  %-40s %s bytes\n" "$f" "$SIZE"
     else
         print_warning "  $f (NOT FOUND on Device0)"
+    fi
+done
+echo "Directories to deploy:"
+for d in "${CLIENT_DIRS[@]}"; do
+    if [ -d "${SOURCE_DIR}/${d}" ]; then
+        COUNT=$(find "${SOURCE_DIR}/${d}" -type f | wc -l)
+        printf "  %-40s %s files\n" "$d" "$COUNT"
+    else
+        print_warning "  $d/ (NOT FOUND on Device0)"
     fi
 done
 echo ""
@@ -149,11 +163,20 @@ for f in "${CLIENT_FILES[@]}"; do
         MISSING=$((MISSING + 1))
     fi
 done
+for d in "${CLIENT_DIRS[@]}"; do
+    echo -n "  ${d}/... "
+    if [ -d "${SOURCE_DIR}/${d}" ]; then
+        print_success "found"
+    else
+        print_error "MISSING"
+        MISSING=$((MISSING + 1))
+    fi
+done
 
 echo ""
 
 if [ $MISSING -gt 0 ]; then
-    print_error "$MISSING source file(s) missing from ${SOURCE_DIR}"
+    print_error "$MISSING source file(s)/dir(s) missing from ${SOURCE_DIR}"
     exit 1
 fi
 
@@ -211,11 +234,18 @@ for LAST_OCTET in "${DEVICES[@]}"; do
             COPY_ERRORS=$((COPY_ERRORS + 1))
         fi
     done
+    for d in "${CLIENT_DIRS[@]}"; do
+        DIRNAME=$(basename "${d}")
+        if ! scp -q -r "${SOURCE_DIR}/${d}" "${SSH_USER}@${DEVICE_IP}:/tmp/ft_update/${DIRNAME}" 2>/dev/null; then
+            print_error "failed to copy ${d}/"
+            COPY_ERRORS=$((COPY_ERRORS + 1))
+        fi
+    done
 
     if [ $COPY_ERRORS -eq 0 ]; then
-        print_success "${#CLIENT_FILES[@]} files staged"
+        print_success "files and dirs staged"
     else
-        print_error "${COPY_ERRORS} file(s) failed to copy"
+        print_error "${COPY_ERRORS} item(s) failed to copy"
         FAILED=$((FAILED + 1))
         echo ""
         continue
@@ -223,9 +253,15 @@ for LAST_OCTET in "${DEVICES[@]}"; do
 
     # Move from /tmp to /opt with sudo and fix permissions
     echo -n "  Installing to /opt... "
-    MOVE_CMD="sudo cp /tmp/ft_update/* ${DEST_DIR}/ && sudo chown pi:pi"
+    # Copy files
+    MOVE_CMD="sudo cp /tmp/ft_update/*.py ${DEST_DIR}/"
+    # Copy audio dir - ensure parent dir exists
+    MOVE_CMD="${MOVE_CMD} && sudo mkdir -p ${DEST_DIR}/field_trainer"
+    MOVE_CMD="${MOVE_CMD} && sudo cp -r /tmp/ft_update/audio ${DEST_DIR}/field_trainer/"
+    # Fix ownership
+    MOVE_CMD="${MOVE_CMD} && sudo chown -R pi:pi ${DEST_DIR}/field_trainer/audio"
     for f in "${CLIENT_FILES[@]}"; do
-        MOVE_CMD="${MOVE_CMD} ${DEST_DIR}/${f}"
+        MOVE_CMD="${MOVE_CMD} && sudo chown pi:pi ${DEST_DIR}/${f}"
     done
     MOVE_CMD="${MOVE_CMD} && rm -rf /tmp/ft_update"
     if ssh "${SSH_USER}@${DEVICE_IP}" "$MOVE_CMD" 2>/dev/null; then
@@ -236,6 +272,30 @@ for LAST_OCTET in "${DEVICES[@]}"; do
         echo ""
         continue
     fi
+
+    # Patch batman startup script to include default gateway route
+    echo -n "  Patching mesh startup script (default gateway)... "
+    PATCH_CMD="grep -q 'ip route add default' /usr/local/bin/start-batman-mesh-client.sh 2>/dev/null"
+    PATCH_CMD="${PATCH_CMD} || echo 'ip route add default via 192.168.99.100 2>/dev/null || true'"
+    PATCH_CMD="${PATCH_CMD} | sudo tee -a /usr/local/bin/start-batman-mesh-client.sh > /dev/null"
+    if ssh "${SSH_USER}@${DEVICE_IP}" "$PATCH_CMD" 2>/dev/null; then
+        print_success "done"
+    else
+        print_warning "patch failed (non-fatal)"
+    fi
+
+    # Apply default gateway immediately (no reboot needed)
+    echo -n "  Applying default gateway now... "
+    ssh "${SSH_USER}@${DEVICE_IP}" "sudo ip route add default via 192.168.99.100 2>/dev/null || true" 2>/dev/null
+    print_success "done"
+
+    # Configure DNS nameservers
+    echo -n "  Configuring DNS nameservers... "
+    DNS_CMD="grep -q 'nameserver 8.8.8.8' /etc/resolv.conf 2>/dev/null"
+    DNS_CMD="${DNS_CMD} || echo -e 'nameserver 8.8.8.8\nnameserver 8.8.4.4' | sudo tee -a /etc/resolv.conf > /dev/null"
+    DNS_CMD="${DNS_CMD}; echo -e 'nameserver 8.8.8.8\nnameserver 8.8.4.4' | sudo tee /etc/resolv.conf.tail > /dev/null"
+    ssh "${SSH_USER}@${DEVICE_IP}" "$DNS_CMD" 2>/dev/null
+    print_success "done"
 
     # Restart client service
     echo -n "  Starting field-client service... "
@@ -290,6 +350,9 @@ else
     print_info "Files deployed to ${DEPLOYED} device(s):"
     for f in "${CLIENT_FILES[@]}"; do
         echo "  • ${f}"
+    done
+    for d in "${CLIENT_DIRS[@]}"; do
+        echo "  • ${d}/ (directory)"
     done
     echo ""
     print_info "Log: ${LOG_FILE}"

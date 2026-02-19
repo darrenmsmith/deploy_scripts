@@ -9,9 +9,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/logging_functions.sh"
 
-# Create log file for this phase
-LOG_FILE="/tmp/phase4_mesh_$(date +%Y%m%d_%H%M%S).log"
-exec &> >(tee -a "$LOG_FILE")
+log_start "Client Phase 4: Mesh Network Join"
 
 echo "════════════════════════════════════════════════════════════"
 echo "  Client Phase 4: Mesh Network Join"
@@ -847,6 +845,9 @@ ip link set bat0 up
 # Assign IP to bat0
 ip addr add \${DEVICE_IP}/24 dev bat0
 
+# Add default gateway route through Device0 (gateway)
+ip route add default via 192.168.99.100 2>/dev/null || true
+
 echo "BATMAN mesh started on \${MESH_IFACE}"
 echo "Device IP: \${DEVICE_IP}"
 echo "Note: wlan0 is used for mesh, wlan1 (if present) remains available"
@@ -905,6 +906,32 @@ else
 fi
 
 ################################################################################
+# Step 19: Configure DNS Nameservers
+################################################################################
+
+log_step "Step 19: Configuring DNS nameservers"
+
+# Write to resolv.conf.tail so it persists across dhcpcd regeneration
+sudo tee /etc/resolv.conf.tail > /dev/null << 'DNSEOF'
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+DNSEOF
+
+# Also append directly to resolv.conf for immediate effect
+grep -q "nameserver 8.8.8.8" /etc/resolv.conf 2>/dev/null || \
+    echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf > /dev/null
+
+log_success "DNS nameservers configured (8.8.8.8, 8.8.4.4)"
+
+# Verify DNS resolution
+echo -n "  Testing DNS resolution... "
+if ping -c 1 -W 5 raspbian.raspberrypi.com &>/dev/null; then
+    log_success "DNS working"
+else
+    log_warning "DNS test failed - internet may not be routed yet (normal if Device0 not running)"
+fi
+
+################################################################################
 # Summary
 ################################################################################
 
@@ -954,6 +981,8 @@ echo "    ✓ wlan0 in IBSS mode"
 echo "    ✓ BATMAN-adv active"
 echo "    ✓ bat0 interface up"
 echo "    ✓ Static IP assigned: $DEVICE_IP"
+echo "    ✓ Default gateway: 192.168.99.100 (Device0)"
+echo "    ✓ DNS nameservers: 8.8.8.8, 8.8.4.4"
 echo "    ✓ Systemd service enabled"
 echo ""
 echo "  Test Commands:"
