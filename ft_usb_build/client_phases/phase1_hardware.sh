@@ -147,7 +147,51 @@ else
 fi
 
 ################################################################################
-# Step 7: Test Audio Output
+# Step 7: Configure I2S Audio (MAX98357A)
+################################################################################
+
+log_step "Configuring I2S audio (MAX98357A amplifier)"
+
+CONFIG_FILE="/boot/firmware/config.txt"
+CHANGED=0
+
+# Disable BCM2835 audio (conflicts with I2S)
+if grep -q "^dtparam=audio=on" "$CONFIG_FILE"; then
+    sudo sed -i 's/^dtparam=audio=on/#dtparam=audio=on/' "$CONFIG_FILE"
+    log_info "Disabled BCM2835 audio (conflicts with I2S)"
+    CHANGED=1
+else
+    log_info "BCM2835 audio already disabled"
+fi
+
+# Enable I2S interface
+if grep -q "^dtparam=i2s=on" "$CONFIG_FILE"; then
+    log_info "I2S already enabled"
+elif grep -q "^#dtparam=i2s=on" "$CONFIG_FILE"; then
+    sudo sed -i 's/^#dtparam=i2s=on/dtparam=i2s=on/' "$CONFIG_FILE"
+    log_success "I2S enabled in config.txt"
+    CHANGED=1
+else
+    echo "dtparam=i2s=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    log_success "I2S added to config.txt"
+    CHANGED=1
+fi
+
+# Add MAX98357A overlay
+if grep -q "dtoverlay=max98357a" "$CONFIG_FILE"; then
+    log_info "MAX98357A overlay already configured"
+else
+    echo "dtoverlay=max98357a" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    log_success "MAX98357A overlay added to config.txt"
+    CHANGED=1
+fi
+
+if [ $CHANGED -eq 1 ]; then
+    log_warning "Audio config changed - reboot required before audio will work"
+fi
+
+################################################################################
+# Step 8: Test Audio Output
 ################################################################################
 
 log_step "Testing audio output"
@@ -158,11 +202,11 @@ if aplay -l 2>/dev/null | grep -q "card"; then
     log_info "$AUDIO_DEVICE"
 else
     log_warning "No audio device detected"
-    log_info "Audio output may not work"
+    log_info "Audio output may not work - reboot may be required"
 fi
 
 ################################################################################
-# Step 8: Record MAC Address
+# Step 9: Record MAC Address
 ################################################################################
 
 log_step "Recording device MAC address"
@@ -216,7 +260,12 @@ echo "    ✓ GPIO available for LED control"
 if aplay -l 2>/dev/null | grep -q "card"; then
     echo "    ✓ Audio output detected"
 else
-    echo "    ⚠ Audio output not detected"
+    echo "    ⚠ Audio output not detected (will appear after reboot)"
+fi
+if [ $CHANGED -eq 1 ]; then
+    echo "    ✓ I2S / MAX98357A audio configured (reboot required)"
+else
+    echo "    ✓ I2S / MAX98357A audio already configured"
 fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -230,17 +279,36 @@ echo "  1. Go to http://192.168.99.100:5000/settings"
 echo "  2. Find 'Device Whitelisting' section"
 echo "  3. Add MAC address: $WLAN0_MAC for Device${DEVICE_NUM}"
 echo ""
-echo "NOTE: A reboot is recommended for I2C/SPI changes to take full effect"
-read -p "Reboot now? (y/n): " DO_REBOOT
 
-if [[ "$DO_REBOOT" =~ ^[Yy]$ ]]; then
-    log_info "Rebooting in 5 seconds..."
-    sleep 5
-    sudo reboot
+if [ $CHANGED -eq 1 ]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_warning "REBOOT REQUIRED"
+    echo "  I2C, SPI, and I2S audio settings were changed in config.txt"
+    echo "  A reboot is REQUIRED before proceeding to Phase 2"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    read -p "Reboot now? (y/n): " DO_REBOOT
+    if [[ "$DO_REBOOT" =~ ^[Yy]$ ]]; then
+        log_info "Rebooting in 5 seconds..."
+        sleep 5
+        sudo reboot
+    else
+        echo ""
+        log_warning "Reboot skipped - YOU MUST REBOOT before Phase 2 or audio will not work"
+        echo ""
+    fi
 else
-    echo ""
-    echo "Reboot skipped. Remember to reboot before Phase 2"
-    echo ""
+    echo "NOTE: A reboot is recommended for any config changes to take full effect"
+    read -p "Reboot now? (y/n): " DO_REBOOT
+    if [[ "$DO_REBOOT" =~ ^[Yy]$ ]]; then
+        log_info "Rebooting in 5 seconds..."
+        sleep 5
+        sudo reboot
+    else
+        echo ""
+        echo "Reboot skipped. Remember to reboot before Phase 2"
+        echo ""
+    fi
 fi
 
 log_end "Client Phase 1 complete"

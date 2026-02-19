@@ -150,6 +150,7 @@ log_step "Installing additional dependencies"
 
 sudo apt-get install -y \
     alsa-utils \
+    mpg123 \
     sox \
     libsox-fmt-mp3
 
