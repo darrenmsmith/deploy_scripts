@@ -132,7 +132,34 @@ else
 fi
 
 ################################################################################
-# Step 5: Download Client Application from Device0
+# Step 5: Authorize Gateway SSH Key
+# Allows Device0 to SSH into this cone for remote calibration
+################################################################################
+
+log_step "Authorizing Device0 SSH key for remote calibration"
+
+mkdir -p /home/pi/.ssh
+chmod 700 /home/pi/.ssh
+
+# Download gateway's public key
+GATEWAY_PUBKEY=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no pi@${DEVICE0_IP} "cat /home/pi/.ssh/id_ed25519.pub" 2>/dev/null)
+
+if [ -n "$GATEWAY_PUBKEY" ]; then
+    # Add key if not already present
+    if ! grep -qF "$GATEWAY_PUBKEY" /home/pi/.ssh/authorized_keys 2>/dev/null; then
+        echo "$GATEWAY_PUBKEY" >> /home/pi/.ssh/authorized_keys
+        chmod 600 /home/pi/.ssh/authorized_keys
+        log_success "Device0 SSH key authorized (remote calibration enabled)"
+    else
+        log_success "Device0 SSH key already authorized"
+    fi
+else
+    log_warning "Could not retrieve Device0 public key - remote calibration will not work"
+    log_info "You can authorize manually later: Settings → Calibration"
+fi
+
+################################################################################
+# Step 6: Download Client Application from Device0
 ################################################################################
 
 log_step "Downloading field_client_connection.py from Device0"
@@ -149,7 +176,7 @@ else
 fi
 
 ################################################################################
-# Step 6: Download Support Libraries
+# Step 7: Download Support Libraries
 ################################################################################
 
 log_step "Downloading support libraries from Device0"
@@ -200,7 +227,7 @@ else
 fi
 
 ################################################################################
-# Step 7: Download Audio Files
+# Step 8: Download Audio Files
 ################################################################################
 
 log_step "Downloading audio files from Device0"
@@ -239,7 +266,7 @@ sudo chown -R pi:pi /opt/field_trainer
 sudo chmod -R 755 /opt/field_trainer
 
 ################################################################################
-# Step 8: Create Systemd Service
+# Step 9: Create Systemd Service
 ################################################################################
 
 log_step "Creating systemd service for field client"
@@ -267,7 +294,7 @@ EOF
 log_success "Systemd service created"
 
 ################################################################################
-# Step 9: Enable and Start Service
+# Step 10: Enable and Start Service
 ################################################################################
 
 log_step "Enabling field-client service"
@@ -299,7 +326,7 @@ else
 fi
 
 ################################################################################
-# Step 10: Test Client Connection
+# Step 11: Test Client Connection
 ################################################################################
 
 log_step "Checking client connection status"
@@ -347,6 +374,71 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 log_success "Phase 5 complete!"
+
+# ── Touch Sensor Calibration ─────────────────────────────────────────────────
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Touch Sensor Calibration (Device${DEVICE_NUM} - ${DEVICE_IP})"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  Calibration measures the resting baseline and detects"
+echo "  5 taps to calculate the optimal touch threshold."
+echo ""
+
+# Download and permanently install calibration script from Device0
+CAL_SCRIPT="/opt/field_trainer/scripts/calibrate_touch.py"
+log_info "Downloading calibration script from Device0..."
+sudo mkdir -p /opt/field_trainer/scripts
+sudo mkdir -p /opt/field_trainer/config
+scp -o StrictHostKeyChecking=no pi@${DEVICE0_IP}:/opt/field_trainer/scripts/calibrate_touch.py "$CAL_SCRIPT" 2>/dev/null
+
+if [ ! -f "$CAL_SCRIPT" ]; then
+    echo "  ⚠ Could not download calibration script - skipping"
+    echo "  You can calibrate later via Device0 Settings → Calibration"
+else
+
+    read -p "  Calibrate touch sensor now? (y/n): " DO_CAL
+    if [[ "$DO_CAL" =~ ^[Yy]$ ]]; then
+        echo ""
+        log_info "Stopping field-client service to free I2C bus..."
+        sudo systemctl stop field-client.service
+        sleep 1
+        echo ""
+        echo "  Place the cone on a flat surface and keep it still."
+        echo "  When prompted, tap the cone firmly 5 times."
+        echo ""
+
+        CAL_SUCCESS=false
+        for attempt in 1 2 3; do
+            [ $attempt -gt 1 ] && echo "" && echo "  Retry $attempt of 3..."
+            python3 "$CAL_SCRIPT" "$DEVICE_IP" 5
+            if [ $? -eq 0 ]; then
+                CAL_SUCCESS=true
+                break
+            fi
+            if [ $attempt -lt 3 ]; then
+                read -p "  Calibration failed. Retry? (y/n): " RETRY_CAL
+                [[ "$RETRY_CAL" =~ ^[Yy]$ ]] || break
+            fi
+        done
+
+        echo ""
+        log_info "Restarting field-client service..."
+        sudo systemctl start field-client.service
+        sleep 2
+
+        if $CAL_SUCCESS; then
+            echo "  ✓ Touch sensor calibrated!"
+        else
+            echo "  ⚠ Calibration incomplete - calibrate later via Device0:"
+            echo "    Settings → Calibration → Device${DEVICE_NUM} → Calibrate"
+        fi
+    else
+        echo "  Skipping - calibrate later via Device0 Settings → Calibration"
+    fi
+    log_success "calibrate_touch.py installed at $CAL_SCRIPT"
+fi
+echo ""
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

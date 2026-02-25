@@ -819,6 +819,63 @@ if [ $ERRORS -eq 0 ]; then
     echo "  • Update code: cd /opt && git pull"
     echo ""
 
+    # ── Touch Sensor Calibration ─────────────────────────────────────────────
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_header "  Touch Sensor Calibration (D0 Gateway)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "  Calibration measures the resting baseline and detects"
+    echo "  5 taps to calculate the optimal touch threshold."
+    echo ""
+
+    CAL_SCRIPT="/opt/field_trainer/scripts/calibrate_touch.py"
+    if [ ! -f "$CAL_SCRIPT" ]; then
+        print_warning "Calibration script not found - skipping"
+        print_info "You can calibrate later via Settings → Calibration"
+    else
+        read -p "  Calibrate D0 touch sensor now? (y/n): " DO_CAL
+        if [[ "$DO_CAL" =~ ^[Yy]$ ]]; then
+            echo ""
+            print_info "Stopping service to free I2C bus..."
+            sudo systemctl stop field-trainer.service
+            sleep 1
+            echo ""
+            echo "  Place the device on a flat surface and keep it still."
+            echo "  When prompted, tap the device firmly 5 times."
+            echo ""
+
+            CAL_SUCCESS=false
+            for attempt in 1 2 3; do
+                [ $attempt -gt 1 ] && echo "" && echo "  Retry $attempt of 3..."
+                python3 "$CAL_SCRIPT" 192.168.99.100 5
+                if [ $? -eq 0 ]; then
+                    CAL_SUCCESS=true
+                    break
+                fi
+                if [ $attempt -lt 3 ]; then
+                    read -p "  Calibration failed. Retry? (y/n): " RETRY_CAL
+                    [[ "$RETRY_CAL" =~ ^[Yy]$ ]] || break
+                fi
+            done
+
+            echo ""
+            print_info "Restarting service..."
+            sudo systemctl start field-trainer.service
+            sleep 2
+
+            if $CAL_SUCCESS; then
+                print_success "Touch sensor calibrated!"
+            else
+                print_warning "Calibration incomplete - you can calibrate later via:"
+                echo "    Settings → Calibration → D0 → Calibrate"
+            fi
+        else
+            print_info "Skipping - calibrate later via Settings → Calibration"
+        fi
+    fi
+    echo ""
+
     # Final recommendations
     print_info "Next steps:"
     echo "  1. Test web interfaces via URLs above"
